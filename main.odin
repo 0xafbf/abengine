@@ -1,7 +1,9 @@
 package main
 
 import "core:os"
+import "core:math"
 import "core:math/bits"
+import "core:math/linalg"
 
 import "core:fmt"
 import "core:mem"
@@ -21,6 +23,10 @@ debugCallback :: proc (
 	return false;
 };
 
+
+VK_CHECK :: proc(res: vk.VkResult) {
+	assert(res == .VK_SUCCESS);
+}
 
 main :: proc() {
 
@@ -352,7 +358,7 @@ main :: proc() {
 
 
 
-	vertex_spv, success := os.read_entire_file("content/vert.spv");
+	vertex_spv, success := os.read_entire_file("content/shader_3.vert.spv");
 	assert(success);
 
 	fragment_spv, success2 := os.read_entire_file("content/frag.spv");
@@ -370,9 +376,6 @@ main :: proc() {
 	fragment_shader_info.pCode = (^u32)( &fragment_spv[0] );
 
 
-	VK_CHECK :: proc(res: vk.VkResult) {
-		assert(res == .VK_SUCCESS);
-	}
 
 	vertex_shader_module :vk.VkShaderModule = ---;
 	fragment_shader_module :vk.VkShaderModule = ---;
@@ -393,12 +396,50 @@ main :: proc() {
 
 	shader_stages := []vk.VkPipelineShaderStageCreateInfo{ vertex_stage_info, fragment_stage_info };
 
+	Vertex :: struct {
+		position :[3]f32,
+		color :[3]f32,
+	};
+
+	triangle := [4]Vertex {
+	    {{-0.5, -0.5, 0.5},  {1.0, 1.0, 0.0}},
+	    {{-0.5,  0.5, 0.5},  {0.0, 1.0, 0.0}},
+	    {{ 0.5,  0.5, 0.5},  {0.0, 1.0, 1.0}},
+	    {{ 0.5, -0.5, 0.5},  {0.0, 1.0, 1.0}},
+	};
+
+	triangle_indices := [6]u32 {
+		0, 1, 2,  0, 2, 3
+	};
+
+	binding_description := vk.VkVertexInputBindingDescription {};
+	binding_description.binding = 0;
+	binding_description.stride = size_of(Vertex);
+	binding_description.inputRate = .VK_VERTEX_INPUT_RATE_VERTEX;
+
+	attrib_position_description := vk.VkVertexInputAttributeDescription {};
+	attrib_position_description.binding = 0;
+	attrib_position_description.location = 0;
+	attrib_position_description.format = .VK_FORMAT_R32G32B32_SFLOAT;
+	attrib_position_description.offset = u32(offset_of(Vertex, position));
+
+	attrib_color_description := vk.VkVertexInputAttributeDescription {};
+	attrib_color_description.binding = 0;
+	attrib_color_description.location = 1;
+	attrib_color_description.format = .VK_FORMAT_R32G32B32_SFLOAT;
+	attrib_color_description.offset = u32(offset_of(Vertex, color));
+
+	attrib_descriptions := []vk.VkVertexInputAttributeDescription {
+		attrib_position_description,
+		attrib_color_description,
+	};
+
 	vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
 	vertex_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertex_info.vertexBindingDescriptionCount = 0;
-	vertex_info.pVertexBindingDescriptions = nil;
-	vertex_info.vertexAttributeDescriptionCount = 0;
-	vertex_info.pVertexAttributeDescriptions = nil;
+	vertex_info.vertexBindingDescriptionCount = 1;
+	vertex_info.pVertexBindingDescriptions = &binding_description;
+	vertex_info.vertexAttributeDescriptionCount = u32(len(attrib_descriptions));
+	vertex_info.pVertexAttributeDescriptions = &attrib_descriptions[0];
 
 
 
@@ -481,10 +522,32 @@ main :: proc() {
  	dynamic_state_info.dynamicStateCount = u32(len(dynamic_states));
 	dynamic_state_info.pDynamicStates = &dynamic_states[0];
 
+
+
+
+
+	layout_binding := vk.VkDescriptorSetLayoutBinding {};
+	layout_binding.binding = 0;
+	layout_binding.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	layout_binding.descriptorCount = 1;//: u32,
+	layout_binding.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
+	layout_binding.pImmutableSamplers = nil;//: ^VkSampler,
+
+	layout_create_info := vk.VkDescriptorSetLayoutCreateInfo {};
+	layout_create_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	// layout_create_info.pNext = //: rawptr,
+	// layout_create_info.flags = //: VkDescriptorSetLayoutCreateFlags,
+	layout_create_info.bindingCount = 1;//: u32,
+	layout_create_info.pBindings = &layout_binding;//: ^VkDescriptorSetLayoutBinding,
+
+	descriptor_set_layout :vk.VkDescriptorSetLayout = ---;
+	VK_CHECK(vk.vkCreateDescriptorSetLayout(device, &layout_create_info, nil, &descriptor_set_layout));
+
+
 	pipeline_layout_info := vk.VkPipelineLayoutCreateInfo {};
 	pipeline_layout_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipeline_layout_info.setLayoutCount = 0;
-	pipeline_layout_info.pSetLayouts = nil;
+	pipeline_layout_info.setLayoutCount = 1;
+	pipeline_layout_info.pSetLayouts = &descriptor_set_layout;
 	pipeline_layout_info.pushConstantRangeCount = 0;
 	pipeline_layout_info.pPushConstantRanges = nil;
 
@@ -579,6 +642,141 @@ main :: proc() {
 	}
 
 
+
+	make_buffer :: proc( in_data: rawptr,  size: uint, device: vk.VkDevice, physical_device: vk.VkPhysicalDevice, usage: vk.VkBufferUsageFlags ) -> vk.VkBuffer {
+		buffer_info := vk.VkBufferCreateInfo {};
+		buffer_info.sType = .VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		buffer_info.pNext = nil;
+		buffer_info.size = u64(size);
+		buffer_info.usage = usage;
+		buffer_info.sharingMode = .VK_SHARING_MODE_EXCLUSIVE;
+
+		buffer :vk.VkBuffer = ---;
+		VK_CHECK(vk.vkCreateBuffer(device, &buffer_info, nil, &buffer));
+
+		mem_requirements :vk.VkMemoryRequirements = ---;
+		vk.vkGetBufferMemoryRequirements(device, buffer, &mem_requirements);
+
+
+		mem_properties :vk.VkPhysicalDeviceMemoryProperties = ---;
+		vk.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
+
+		type_index :u32 = ---;
+		for idx in 0..<mem_properties.memoryTypeCount {
+			mem_type := mem_properties.memoryTypes[idx];
+			mask := (vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+			if (mem_type.propertyFlags & mask) == mask{
+				type_index = idx;
+				break;
+			}
+		}
+		assert(type_index != ---);
+
+
+		alloc_info := vk.VkMemoryAllocateInfo {};
+		alloc_info.sType = .VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		alloc_info.allocationSize = mem_requirements.size;
+		alloc_info.memoryTypeIndex = u32(type_index);
+
+		device_memory :vk.VkDeviceMemory = ---;
+		VK_CHECK(vk.vkAllocateMemory(device, &alloc_info, nil, &device_memory));
+
+		vk.vkBindBufferMemory(device, buffer, device_memory, 0);
+
+		data :rawptr = ---;
+
+		fmt.println("buffer size:", buffer_info.size);
+
+		vk.vkMapMemory(device, device_memory, 0, buffer_info.size, 0, &data);
+		mem.copy(data, in_data, int(buffer_info.size));
+		vk.vkUnmapMemory(device, device_memory);
+
+		return buffer;
+
+	}
+
+
+
+	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), device, physical_device, .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	vertex_buffer := make_buffer(&triangle[0], size_of(triangle), device, physical_device, .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+
+
+	UniformBufferObject :: struct {
+		model :linalg.Matrix4,
+		view :linalg.Matrix4,
+		proj :linalg.Matrix4,
+	};
+
+	ubo := UniformBufferObject {};
+	scl := f32(1.8);
+	ubo.model = linalg.matrix4_scale({scl, scl, scl});
+	ubo.model = linalg.matrix4_rotate(math.TAU /10, {0, 0, 1});
+	ubo.view = linalg.MATRIX4_IDENTITY;
+
+	aspect := f32(WIDTH) / f32(HEIGHT);
+
+	// ubo.proj = linalg.matrix_ortho3d(-aspect, aspect, 1, -1, -1, 1);
+	ubo.proj = linalg.matrix4_scale({1/aspect, 1, 1});
+
+
+	uniform_buffer := make_buffer(&ubo, size_of(ubo), device, physical_device, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+
+
+	descriptor_pool_size := vk.VkDescriptorPoolSize {};
+	descriptor_pool_size.type = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	descriptor_pool_size.descriptorCount = swapchain_image_count;
+
+	descriptor_pool_info := vk.VkDescriptorPoolCreateInfo {};
+	descriptor_pool_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	// descriptor_pool_info.pNext = //: rawptr,
+	// descriptor_pool_info.flags = //: VkDescriptorPoolCreateFlags,
+	descriptor_pool_info.maxSets = swapchain_image_count;
+	descriptor_pool_info.poolSizeCount = 1;
+	descriptor_pool_info.pPoolSizes = &descriptor_pool_size;
+
+	descriptor_pool :vk.VkDescriptorPool = ---;
+	VK_CHECK(vk.vkCreateDescriptorPool(device, &descriptor_pool_info, nil, &descriptor_pool));
+
+	desc_set_layouts := make([]vk.VkDescriptorSetLayout, swapchain_image_count);
+	for idx in 0..<swapchain_image_count {
+		desc_set_layouts[idx] = descriptor_set_layout;
+	}
+
+	descriptor_set_alloc_info := vk.VkDescriptorSetAllocateInfo {};
+	descriptor_set_alloc_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	// descriptor_set_alloc_info.pNext = ;//: rawptr,
+	descriptor_set_alloc_info.descriptorPool = descriptor_pool;//: VkDescriptorPool,
+	descriptor_set_alloc_info.descriptorSetCount = swapchain_image_count;//: u32,
+	descriptor_set_alloc_info.pSetLayouts = &desc_set_layouts[0];//: ^VkDescriptorSetLayout,
+
+	descriptor_sets := make([]vk.VkDescriptorSet, swapchain_image_count);
+
+	VK_CHECK(vk.vkAllocateDescriptorSets(device, &descriptor_set_alloc_info, &descriptor_sets[0]));
+
+	delete(desc_set_layouts);
+
+	for idx in 0..<swapchain_image_count {
+		descriptor_buffer_info := vk.VkDescriptorBufferInfo {};
+		descriptor_buffer_info.buffer = uniform_buffer;
+		descriptor_buffer_info.offset = 0;
+		descriptor_buffer_info.range = size_of(UniformBufferObject);
+
+		fmt.println("ubo size:", size_of(UniformBufferObject));
+
+		descriptor_write := vk.VkWriteDescriptorSet {};
+		descriptor_write.sType = .VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptor_write.dstSet = descriptor_sets[idx];
+		descriptor_write.dstBinding = 0;
+		descriptor_write.dstArrayElement = 0;
+		descriptor_write.descriptorCount = 1;
+		descriptor_write.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descriptor_write.pBufferInfo = &descriptor_buffer_info;
+
+		vk.vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nil);
+	}
+
+
 	graphics_command_pool_info := vk.VkCommandPoolCreateInfo {};
 	graphics_command_pool_info.sType = .VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	graphics_command_pool_info.queueFamilyIndex = graphics_queue_family_idx;
@@ -628,7 +826,14 @@ main :: proc() {
 		vk.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
 		vk.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 		vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-		vk.vkCmdDraw(command_buffer, 3, 1, 0, 0);
+
+		b_offset :vk.VkDeviceSize = 0;
+		vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, &b_offset);
+		vk.vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, .VK_INDEX_TYPE_UINT32);
+
+		vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &descriptor_sets[idx], 0, nil);
+
+		vk.vkCmdDrawIndexed(command_buffer, 6, 1, 0, 0, 0);
 
 		vk.vkCmdEndRenderPass(command_buffer);
 		VK_CHECK(vk.vkEndCommandBuffer(command_buffer));
