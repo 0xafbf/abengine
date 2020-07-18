@@ -368,10 +368,10 @@ main :: proc() {
 
 
 
-	vertex_spv, success := os.read_entire_file("content/shader_3.vert.spv");
+	vertex_spv, success := os.read_entire_file("content/shader_4.vert.spv");
 	assert(success);
 
-	fragment_spv, success2 := os.read_entire_file("content/frag.spv");
+	fragment_spv, success2 := os.read_entire_file("content/shader_4.frag.spv");
 	assert(success2);
 
 	vertex_shader_info := vk.VkShaderModuleCreateInfo {};
@@ -408,14 +408,14 @@ main :: proc() {
 
 	Vertex :: struct {
 		position :[3]f32,
-		color :[3]f32,
+		uv :[2]f32,
 	};
 
 	triangle := [4]Vertex {
-	    {{-0.5, -0.5, 0.5},  {1.0, 1.0, 0.0}},
-	    {{-0.5,  0.5, 0.5},  {0.0, 1.0, 0.0}},
-	    {{ 0.5,  0.5, 0.5},  {0.0, 1.0, 1.0}},
-	    {{ 0.5, -0.5, 0.5},  {0.0, 1.0, 1.0}},
+	    {{-0.5, -0.5, 0.5},  {0.0, 0.0}},
+	    {{-0.5,  0.5, 0.5},  {0.0, 1.0}},
+	    {{ 0.5,  0.5, 0.5},  {1.0, 1.0}},
+	    {{ 0.5, -0.5, 0.5},  {1.0, 0.0}},
 	};
 
 	triangle_indices := [6]u32 {
@@ -433,15 +433,15 @@ main :: proc() {
 	attrib_position_description.format = .VK_FORMAT_R32G32B32_SFLOAT;
 	attrib_position_description.offset = u32(offset_of(Vertex, position));
 
-	attrib_color_description := vk.VkVertexInputAttributeDescription {};
-	attrib_color_description.binding = 0;
-	attrib_color_description.location = 1;
-	attrib_color_description.format = .VK_FORMAT_R32G32B32_SFLOAT;
-	attrib_color_description.offset = u32(offset_of(Vertex, color));
+	attrib_uv_description := vk.VkVertexInputAttributeDescription {};
+	attrib_uv_description.binding = 0;
+	attrib_uv_description.location = 1;
+	attrib_uv_description.format = .VK_FORMAT_R32G32_SFLOAT;
+	attrib_uv_description.offset = u32(offset_of(Vertex, uv));
 
 	attrib_descriptions := []vk.VkVertexInputAttributeDescription {
 		attrib_position_description,
-		attrib_color_description,
+		attrib_uv_description,
 	};
 
 	vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
@@ -560,12 +560,25 @@ main :: proc() {
 	layout_binding.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
 	layout_binding.pImmutableSamplers = nil;//: ^VkSampler,
 
+	layout_binding_img := vk.VkDescriptorSetLayoutBinding {};
+	layout_binding_img.binding = 1;
+	layout_binding_img.descriptorType = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	layout_binding_img.descriptorCount = 1;//: u32,
+	layout_binding_img.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
+	layout_binding_img.pImmutableSamplers = nil;//: ^VkSampler,
+
+	layout_bindings := []vk.VkDescriptorSetLayoutBinding {
+		layout_binding,
+		layout_binding_img,
+	};
+
+
 	layout_create_info := vk.VkDescriptorSetLayoutCreateInfo {};
 	layout_create_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	// layout_create_info.pNext = //: rawptr,
 	// layout_create_info.flags = //: VkDescriptorSetLayoutCreateFlags,
-	layout_create_info.bindingCount = 1;//: u32,
-	layout_create_info.pBindings = &layout_binding;//: ^VkDescriptorSetLayoutBinding,
+	layout_create_info.bindingCount = u32(len(layout_bindings));
+	layout_create_info.pBindings = &layout_bindings[0];//: ^VkDescriptorSetLayoutBinding,
 
 	descriptor_set_layout :vk.VkDescriptorSetLayout = ---;
 	VK_CHECK(vk.vkCreateDescriptorSetLayout(device, &layout_create_info, nil, &descriptor_set_layout));
@@ -677,15 +690,24 @@ main :: proc() {
 
 	descriptor_pool_size := vk.VkDescriptorPoolSize {};
 	descriptor_pool_size.type = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	descriptor_pool_size.descriptorCount = swapchain_image_count;
+	descriptor_pool_size.descriptorCount = 100;
+
+	descriptor_pool_size2 := vk.VkDescriptorPoolSize {};
+	descriptor_pool_size2.type = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	descriptor_pool_size2.descriptorCount = 100;
+
+	descriptor_pool_sizes := []vk.VkDescriptorPoolSize {
+		descriptor_pool_size,
+		descriptor_pool_size2,
+	};
 
 	descriptor_pool_info := vk.VkDescriptorPoolCreateInfo {};
 	descriptor_pool_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	// descriptor_pool_info.pNext = //: rawptr,
 	// descriptor_pool_info.flags = //: VkDescriptorPoolCreateFlags,
 	descriptor_pool_info.maxSets = swapchain_image_count;
-	descriptor_pool_info.poolSizeCount = 1;
-	descriptor_pool_info.pPoolSizes = &descriptor_pool_size;
+	descriptor_pool_info.poolSizeCount = u32(len(descriptor_pool_sizes));
+	descriptor_pool_info.pPoolSizes = &descriptor_pool_sizes[0];
 
 	descriptor_pool :vk.VkDescriptorPool = ---;
 	VK_CHECK(vk.vkCreateDescriptorPool(device, &descriptor_pool_info, nil, &descriptor_pool));
@@ -724,8 +746,8 @@ main :: proc() {
 	uniform_buffer2 := make_buffer(&ubo2, size_of(ubo2), device, physical_device, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 
-	update_binding(descriptor_sets[0], &uniform_buffer, 0);
-	update_binding(descriptor_sets[1], &uniform_buffer2, 0);
+	update_binding(descriptor_sets[0], 0, &uniform_buffer);
+	update_binding(descriptor_sets[1], 0, &uniform_buffer2);
 
 
 	img_x, img_y, img_channels : i32;
@@ -985,6 +1007,33 @@ main :: proc() {
 	my_image_view := create_image_view(image, .VK_FORMAT_R8G8B8A8_SRGB);
 
 
+	sampler_info := vk.VkSamplerCreateInfo {};
+	sampler_info.sType = .VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;//: VkStructureType,
+	// sampler_info.pNext = //: rawptr,
+	// sampler_info.flags = //: VkSamplerCreateFlags,
+	sampler_info.magFilter = .VK_FILTER_LINEAR;//: VkFilter,
+	sampler_info.minFilter = .VK_FILTER_LINEAR;//: VkFilter,
+	// sampler_info.mipmapMode = //: VkSamplerMipmapMode,
+	sampler_info.addressModeU = .VK_SAMPLER_ADDRESS_MODE_REPEAT;//: VkSamplerAddressMode,
+	sampler_info.addressModeV = .VK_SAMPLER_ADDRESS_MODE_REPEAT;//: VkSamplerAddressMode,
+	sampler_info.addressModeW = .VK_SAMPLER_ADDRESS_MODE_REPEAT;//: VkSamplerAddressMode,
+	sampler_info.mipLodBias = 0;//: f32,
+	sampler_info.anisotropyEnable = false;//: VkBool32,
+
+	sampler_info.maxAnisotropy = 1;//: f32,
+	sampler_info.compareEnable = false;//: VkBool32,
+	// sampler_info.compareOp = //: VkCompareOp,
+	sampler_info.minLod = 0;//: f32,
+	sampler_info.maxLod = 0;//: f32,
+	// sampler_info.borderColor = //: VkBorderColor,
+	sampler_info.unnormalizedCoordinates = false;//: VkBool32,
+
+	sampler :vk.VkSampler = ---;
+	VK_CHECK(vk.vkCreateSampler(VK_DEVICE(), &sampler_info, nil, &sampler));
+
+	update_binding_img(descriptor_sets[0], 1, sampler, my_image_view, .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	update_binding_img(descriptor_sets[1], 1, sampler, my_image_view, .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
 	// VkCommandPoolCreateInfo present_command_pool_info {};
 	// present_command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	// present_command_pool_info.queueFamilyIndex = present_queue_family_idx;
@@ -1181,8 +1230,8 @@ get_descriptor_sets :: proc(
 
 update_binding :: proc (
 	descriptor_set :vk.VkDescriptorSet,
-	buffer         :^Buffer,
 	binding        :u32,
+	buffer         :^Buffer,
 ) {
 
 	descriptor_buffer_info := vk.VkDescriptorBufferInfo {};
@@ -1198,6 +1247,32 @@ update_binding :: proc (
 	descriptor_write.descriptorCount = 1;
 	descriptor_write.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	descriptor_write.pBufferInfo = &descriptor_buffer_info;
+
+	vk.vkUpdateDescriptorSets(VK_DEVICE(), 1, &descriptor_write, 0, nil);
+}
+
+
+update_binding_img :: proc (
+	descriptor_set :vk.VkDescriptorSet,
+	binding        :u32,
+	sampler        :vk.VkSampler,
+	image_view     :vk.VkImageView,
+	image_layout   :vk.VkImageLayout,
+) {
+
+	descriptor_image_info := vk.VkDescriptorImageInfo {};
+	descriptor_image_info.sampler = sampler;//: VkSampler,
+	descriptor_image_info.imageView = image_view;//: VkImageView,
+	descriptor_image_info.imageLayout = image_layout;//: VkImageLayout,
+
+	descriptor_write := vk.VkWriteDescriptorSet {};
+	descriptor_write.sType = .VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptor_write.dstSet = descriptor_set;
+	descriptor_write.dstBinding = binding;
+	descriptor_write.dstArrayElement = 0;
+	descriptor_write.descriptorCount = 1;
+	descriptor_write.descriptorType = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	descriptor_write.pImageInfo = &descriptor_image_info;
 
 	vk.vkUpdateDescriptorSets(VK_DEVICE(), 1, &descriptor_write, 0, nil);
 }
