@@ -12,6 +12,7 @@ import glfw "odin-glfw"
 import glfw_bindings "odin-glfw/bindings"
 import vk "vk_bindings"
 
+import "odin-stb/stbi"
 
 debugCallback :: proc (
 	messageSeverity: vk.VkDebugUtilsMessageSeverityFlagBitsEXT,
@@ -35,8 +36,22 @@ main :: proc() {
 	glfw.init();
 	glfw.window_hint(.CLIENT_API, int(glfw.NO_API));
 
+
+	all_monitors := glfw.get_monitors();
+	primary_monitor := glfw.get_primary_monitor();
+
+	target_monitor :glfw.Monitor_Handle = primary_monitor;
+	for monitor in all_monitors {
+		if monitor != primary_monitor {
+			target_monitor = monitor;
+		}
+	}
+
+	monitor_x, monitor_y := glfw.get_monitor_pos(target_monitor);
+
 	win := glfw.create_window(800, 600, "Window", nil, nil);
 
+	glfw.set_window_pos(win, monitor_x + 200, monitor_y +200);
 
 	app_info := vk.VkApplicationInfo {};
 	app_info.sType = .VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -316,10 +331,21 @@ main :: proc() {
 
 	r = vk.vkCreateDevice(physical_device, &device_info, nil, &device);
 	assert(r == .VK_SUCCESS);
+	context.user_ptr = device;
 	fmt.println("Created vulkan device");
+
 
 	swapchain :vk.VkSwapchainKHR = ---;
 	r = vk.vkCreateSwapchainKHR(device, &swapchain_info, nil, &swapchain);
+
+
+
+	my_swapchain := Swapchain {
+		width = surface_extents.width,
+		height = surface_extents.height,
+		swapchain = swapchain,
+		image_count = image_count,
+	};
 
 	swapchain_image_count :u32 = 0;
 	vk.vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nil);
@@ -330,24 +356,8 @@ main :: proc() {
 
 	swapchain_image_views := make([]vk.VkImageView, swapchain_image_count);
 
-	image_view_info := vk.VkImageViewCreateInfo {};
-	image_view_info.sType = .VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	image_view_info.viewType = .VK_IMAGE_VIEW_TYPE_2D;
-	image_view_info.format = desired_format.format;
-	image_view_info.components.r = .VK_COMPONENT_SWIZZLE_IDENTITY;
-	image_view_info.components.g = .VK_COMPONENT_SWIZZLE_IDENTITY;
-	image_view_info.components.b = .VK_COMPONENT_SWIZZLE_IDENTITY;
-	image_view_info.components.a = .VK_COMPONENT_SWIZZLE_IDENTITY;
-	image_view_info.subresourceRange.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
-	image_view_info.subresourceRange.baseMipLevel = 0;
-	image_view_info.subresourceRange.levelCount = 1;
-	image_view_info.subresourceRange.baseArrayLayer = 0;
-	image_view_info.subresourceRange.layerCount = 1;
-
 	for idx in 0..<swapchain_image_count {
-		image_view_info.image = swapchain_images[idx];
-		r = vk.vkCreateImageView(device, &image_view_info, nil, &swapchain_image_views[idx]);
-		assert(r == .VK_SUCCESS);
+		swapchain_image_views[idx] = create_image_view(swapchain_images[idx], desired_format.format);
 	}
 
 	graphics_queue :vk.VkQueue = ---;
@@ -491,12 +501,29 @@ main :: proc() {
 
 	color_blend_attachment := vk.VkPipelineColorBlendAttachmentState {};
 	color_blend_attachment.blendEnable = false;
-	// VkBlendFactor            srcColorBlendFactor;
-	// VkBlendFactor            dstColorBlendFactor;
-	// VkBlendOp                colorBlendOp;
-	// VkBlendFactor            srcAlphaBlendFactor;
-	// VkBlendFactor            dstAlphaBlendFactor;
-	// VkBlendOp                alphaBlendOp;
+
+	// color_blend_attachment.srcColorBlendFactor = .VK_BLEND_FACTOR_SRC_ALPHA;//: VkBlendFactor,
+	// color_blend_attachment.dstColorBlendFactor = .VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;//: VkBlendFactor,
+	// color_blend_attachment.colorBlendOp = //: VkBlendOp,
+	// color_blend_attachment.srcAlphaBlendFactor = //: VkBlendFactor,
+	// color_blend_attachment.dstAlphaBlendFactor = //: VkBlendFactor,
+	// color_blend_attachment.alphaBlendOp = //: VkBlendOp,
+
+/*	depth_stencil_state :vk.VkPipelineDepthStencilStateCreateInfo = ---;
+	depth_stencil_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;//: VkStructureType,
+	// depth_stencil_state.pNext = //: rawptr,
+	// depth_stencil_state.flags = //: VkPipelineDepthStencilStateCreateFlags,
+	depth_stencil_state.depthTestEnable = true;//: VkBool32,
+	depth_stencil_state.depthWriteEnable = true;//: VkBool32,
+	depth_stencil_state.depthCompareOp = .VK_COMPARE_OP_LESS;//: VkCompareOp,
+	depth_stencil_state.depthBoundsTestEnable = false;//: VkBool32,
+	depth_stencil_state.stencilTestEnable = false;//: VkBool32,
+	// depth_stencil_state.front = //: VkStencilOpState,
+	// depth_stencil_state.back = //: VkStencilOpState,
+	depth_stencil_state.minDepthBounds = 0;//: f32,
+	depth_stencil_state.maxDepthBounds = 1;//: f32,
+*/
+
 	color_blend_attachment.colorWriteMask = (
 		.VK_COLOR_COMPONENT_R_BIT |
 		.VK_COLOR_COMPONENT_G_BIT |
@@ -605,7 +632,7 @@ main :: proc() {
 	graphics_pipeline_info.pViewportState = &viewport_state;
 	graphics_pipeline_info.pRasterizationState = &rasterization_state;
 	graphics_pipeline_info.pMultisampleState = &multisample_info;
-	// const  VkPipelineDepthStencilStateCreateInfo *  pDepthStencilState;
+	// graphics_pipeline_info.pDepthStencilState = &depth_stencil_state;
 	graphics_pipeline_info.pColorBlendState = &color_blend_info;
 	graphics_pipeline_info.pDynamicState = &dynamic_state_info;
 	graphics_pipeline_info.layout = pipeline_layout;
@@ -643,84 +670,9 @@ main :: proc() {
 
 
 
-	make_buffer :: proc( in_data: rawptr,  size: uint, device: vk.VkDevice, physical_device: vk.VkPhysicalDevice, usage: vk.VkBufferUsageFlags ) -> vk.VkBuffer {
-		buffer_info := vk.VkBufferCreateInfo {};
-		buffer_info.sType = .VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		buffer_info.pNext = nil;
-		buffer_info.size = u64(size);
-		buffer_info.usage = usage;
-		buffer_info.sharingMode = .VK_SHARING_MODE_EXCLUSIVE;
-
-		buffer :vk.VkBuffer = ---;
-		VK_CHECK(vk.vkCreateBuffer(device, &buffer_info, nil, &buffer));
-
-		mem_requirements :vk.VkMemoryRequirements = ---;
-		vk.vkGetBufferMemoryRequirements(device, buffer, &mem_requirements);
-
-
-		mem_properties :vk.VkPhysicalDeviceMemoryProperties = ---;
-		vk.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
-
-		type_index :u32 = ---;
-		for idx in 0..<mem_properties.memoryTypeCount {
-			mem_type := mem_properties.memoryTypes[idx];
-			mask := (vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-			if (mem_type.propertyFlags & mask) == mask{
-				type_index = idx;
-				break;
-			}
-		}
-		assert(type_index != ---);
-
-
-		alloc_info := vk.VkMemoryAllocateInfo {};
-		alloc_info.sType = .VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		alloc_info.allocationSize = mem_requirements.size;
-		alloc_info.memoryTypeIndex = u32(type_index);
-
-		device_memory :vk.VkDeviceMemory = ---;
-		VK_CHECK(vk.vkAllocateMemory(device, &alloc_info, nil, &device_memory));
-
-		vk.vkBindBufferMemory(device, buffer, device_memory, 0);
-
-		data :rawptr = ---;
-
-		fmt.println("buffer size:", buffer_info.size);
-
-		vk.vkMapMemory(device, device_memory, 0, buffer_info.size, 0, &data);
-		mem.copy(data, in_data, int(buffer_info.size));
-		vk.vkUnmapMemory(device, device_memory);
-
-		return buffer;
-
-	}
-
-
-
 	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), device, physical_device, .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 	vertex_buffer := make_buffer(&triangle[0], size_of(triangle), device, physical_device, .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
-
-
-	UniformBufferObject :: struct {
-		model :linalg.Matrix4,
-		view :linalg.Matrix4,
-		proj :linalg.Matrix4,
-	};
-
-	ubo := UniformBufferObject {};
-	scl := f32(1.8);
-	ubo.model = linalg.matrix4_scale({scl, scl, scl});
-	ubo.model = linalg.matrix4_rotate(math.TAU /10, {0, 0, 1});
-	ubo.view = linalg.MATRIX4_IDENTITY;
-
-	aspect := f32(WIDTH) / f32(HEIGHT);
-
-	// ubo.proj = linalg.matrix_ortho3d(-aspect, aspect, 1, -1, -1, 1);
-	ubo.proj = linalg.matrix4_scale({1/aspect, 1, 1});
-
-
-	uniform_buffer := make_buffer(&ubo, size_of(ubo), device, physical_device, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 
 	descriptor_pool_size := vk.VkDescriptorPoolSize {};
@@ -738,43 +690,107 @@ main :: proc() {
 	descriptor_pool :vk.VkDescriptorPool = ---;
 	VK_CHECK(vk.vkCreateDescriptorPool(device, &descriptor_pool_info, nil, &descriptor_pool));
 
-	desc_set_layouts := make([]vk.VkDescriptorSetLayout, swapchain_image_count);
-	for idx in 0..<swapchain_image_count {
-		desc_set_layouts[idx] = descriptor_set_layout;
+
+	descriptor_sets := get_descriptor_sets(descriptor_pool, descriptor_set_layout, 2);
+
+
+
+	UniformBufferObject :: struct {
+		model :linalg.Matrix4,
+		view :linalg.Matrix4,
+		proj :linalg.Matrix4,
+	};
+
+
+	ubo := UniformBufferObject {};
+	ubo2 := UniformBufferObject {};
+
+	ubo.model = linalg.MATRIX4_IDENTITY;
+	ubo2.model = linalg.MATRIX4_IDENTITY;
+
+	t:= linalg.Vector3{0, 0.5, -2};
+	s:= linalg.Vector3{1,1,1};
+	r222:= linalg.quaternion_angle_axis(math.TAU / 15, {1, 0, 0});
+
+	ubo.view = linalg.matrix4_from_trs(t, r222, s);
+	ubo2.view = ubo.view;
+
+	aspect := f32(WIDTH) / f32(HEIGHT);
+	ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
+	ubo2.proj = ubo.proj;
+	// ubo2.proj = linalg.matrix4_scale({1/aspect, -1, 1});
+
+	uniform_buffer := make_buffer(&ubo,   size_of(ubo), device, physical_device, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+	uniform_buffer2 := make_buffer(&ubo2, size_of(ubo2), device, physical_device, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+
+
+	update_binding(descriptor_sets[0], &uniform_buffer, 0);
+	update_binding(descriptor_sets[1], &uniform_buffer2, 0);
+
+
+	img_x, img_y, img_channels : i32;
+	image_data := stbi.load("content/texture.jpg", &img_x, &img_y, &img_channels, 4);
+
+	img_size := img_x * img_y * 4;
+	img_buffer := make_buffer(image_data, uint(img_size), device, physical_device, .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+	stbi.image_free(image_data);
+
+
+
+
+	img_info := vk.VkImageCreateInfo {};
+	img_info.sType = .VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;//: VkStructureType,
+	// img_info.pNext = //: rawptr,
+	// img_info.flags = //: VkImageCreateFlags,
+	img_info.imageType = .VK_IMAGE_TYPE_2D;//: VkImageType,
+	img_info.format = .VK_FORMAT_R8G8B8A8_SRGB;//: VkFormat,
+	img_info.extent = {u32(img_x), u32(img_y), 1};//: VkExtent3D,
+	img_info.mipLevels = 1;//: u32,
+	img_info.arrayLayers = 1;//: u32,
+	img_info.samples = .VK_SAMPLE_COUNT_1_BIT;//: VkSampleCountFlagBits,
+	img_info.tiling = .VK_IMAGE_TILING_OPTIMAL;//: VkImageTiling,
+	img_info.usage = .VK_IMAGE_USAGE_TRANSFER_DST_BIT | .VK_IMAGE_USAGE_SAMPLED_BIT;
+	img_info.sharingMode = .VK_SHARING_MODE_EXCLUSIVE;//: VkSharingMode,
+	// img_info.queueFamilyIndexCount = //: u32,
+	// img_info.pQueueFamilyIndices = //: ^u32,
+	img_info.initialLayout = .VK_IMAGE_LAYOUT_UNDEFINED;//: VkImageLayout,
+
+	image :vk.VkImage = ---;
+	VK_CHECK(vk.vkCreateImage(VK_DEVICE(), &img_info, nil, &image));
+
+
+	img_mem_requirements :vk.VkMemoryRequirements = ---;
+	vk.vkGetImageMemoryRequirements(VK_DEVICE(), image, &img_mem_requirements);
+
+	alloc_info := vk.VkMemoryAllocateInfo {};
+	alloc_info.sType = .VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc_info.allocationSize = img_mem_requirements.size;
+
+	mem_properties :vk.VkPhysicalDeviceMemoryProperties = ---;
+	vk.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
+
+	properties :vk.VkMemoryPropertyFlags = .VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	memory_type_idx :u32 = ---;
+	for idx in 0..<mem_properties.memoryTypeCount {
+		if img_mem_requirements.memoryTypeBits & 1<<idx != 0 {
+			memory_type := mem_properties.memoryTypes[idx];
+			if (memory_type.propertyFlags & properties) == properties {
+				memory_type_idx = idx;
+				break;
+			}
+		}
 	}
 
-	descriptor_set_alloc_info := vk.VkDescriptorSetAllocateInfo {};
-	descriptor_set_alloc_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	// descriptor_set_alloc_info.pNext = ;//: rawptr,
-	descriptor_set_alloc_info.descriptorPool = descriptor_pool;//: VkDescriptorPool,
-	descriptor_set_alloc_info.descriptorSetCount = swapchain_image_count;//: u32,
-	descriptor_set_alloc_info.pSetLayouts = &desc_set_layouts[0];//: ^VkDescriptorSetLayout,
+	alloc_info.memoryTypeIndex = memory_type_idx;
 
-	descriptor_sets := make([]vk.VkDescriptorSet, swapchain_image_count);
+	image_memory :vk.VkDeviceMemory = ---;
+	VK_CHECK(vk.vkAllocateMemory(VK_DEVICE(), &alloc_info, nil, &image_memory) );
+	vk.vkBindImageMemory(device, image, image_memory, 0);
 
-	VK_CHECK(vk.vkAllocateDescriptorSets(device, &descriptor_set_alloc_info, &descriptor_sets[0]));
 
-	delete(desc_set_layouts);
 
-	for idx in 0..<swapchain_image_count {
-		descriptor_buffer_info := vk.VkDescriptorBufferInfo {};
-		descriptor_buffer_info.buffer = uniform_buffer;
-		descriptor_buffer_info.offset = 0;
-		descriptor_buffer_info.range = size_of(UniformBufferObject);
 
-		fmt.println("ubo size:", size_of(UniformBufferObject));
 
-		descriptor_write := vk.VkWriteDescriptorSet {};
-		descriptor_write.sType = .VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptor_write.dstSet = descriptor_sets[idx];
-		descriptor_write.dstBinding = 0;
-		descriptor_write.dstArrayElement = 0;
-		descriptor_write.descriptorCount = 1;
-		descriptor_write.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		descriptor_write.pBufferInfo = &descriptor_buffer_info;
-
-		vk.vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, nil);
-	}
 
 
 	graphics_command_pool_info := vk.VkCommandPoolCreateInfo {};
@@ -784,6 +800,190 @@ main :: proc() {
 
 	graphics_command_pool :vk.VkCommandPool = ---;
 	vk.vkCreateCommandPool(device, &graphics_command_pool_info, nil, &graphics_command_pool);
+
+
+
+	begin_single_use_command_buffer :: proc(pool: vk.VkCommandPool) -> vk.VkCommandBuffer {
+
+		cmd_buffer_info := vk.VkCommandBufferAllocateInfo {};
+		cmd_buffer_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		// cmd_buffer_info.pNext = //: rawptr,
+		cmd_buffer_info.commandPool = pool;
+		cmd_buffer_info.level = .VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		cmd_buffer_info.commandBufferCount = 1;
+
+		cmd_buffer :vk.VkCommandBuffer = ---;
+		vk.vkAllocateCommandBuffers(VK_DEVICE(), &cmd_buffer_info, &cmd_buffer);
+
+		begin_info := vk.VkCommandBufferBeginInfo {};
+		begin_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin_info.flags = .VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vk.vkBeginCommandBuffer(cmd_buffer, &begin_info);
+		return cmd_buffer;
+	}
+
+////////
+
+	copy_buffer :: proc(from, to: vk.VkBuffer, size: vk.VkDeviceSize, pool: vk.VkCommandPool, queue: vk.VkQueue) {
+		img_command_buffer := begin_single_use_command_buffer(pool);
+		copy_region := vk.VkBufferCopy {};
+		copy_region.size = size;
+		vk.vkCmdCopyBuffer(img_command_buffer, from, to, 1, &copy_region);
+
+		end_single_use_command_buffer(img_command_buffer, queue, pool);
+	}
+
+
+	transition_image_layout :: proc(
+		image: vk.VkImage,
+		format: vk.VkFormat,
+		old_layout: vk.VkImageLayout,
+		new_layout: vk.VkImageLayout,
+		pool: vk.VkCommandPool,
+		queue: vk.VkQueue,
+	) {
+		cmd_buffer := begin_single_use_command_buffer(pool);
+
+		barrier := vk.VkImageMemoryBarrier {};
+		barrier.sType = .VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		barrier.oldLayout = old_layout;
+		barrier.newLayout = new_layout;
+		barrier.srcQueueFamilyIndex = 0;
+		barrier.dstQueueFamilyIndex = 0;
+
+		barrier.image = image;
+		barrier.subresourceRange.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
+		barrier.subresourceRange.baseMipLevel = 0;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+
+		source_stage, destination_stage :vk.VkPipelineStageFlags;
+
+		if (old_layout == .VK_IMAGE_LAYOUT_UNDEFINED
+			&& new_layout == .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+		) {
+			barrier.srcAccessMask = auto_cast 0;
+			barrier.dstAccessMask = .VK_ACCESS_TRANSFER_WRITE_BIT;
+			source_stage = .VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destination_stage = .VK_PIPELINE_STAGE_TRANSFER_BIT;
+		} else if (old_layout == .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+			&& new_layout == .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+		) {
+			barrier.srcAccessMask = .VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = .VK_ACCESS_SHADER_READ_BIT;
+			source_stage = .VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destination_stage = .VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		} else {
+			fmt.println("ERROR");
+		}
+
+		vk.vkCmdPipelineBarrier(cmd_buffer,
+			source_stage, destination_stage,
+			auto_cast 0,
+			0, nil,
+			0, nil,
+			1, &barrier
+		);
+
+		end_single_use_command_buffer(cmd_buffer, queue, pool);
+	}
+
+	copy_buffer_to_image :: proc(
+		buffer: vk.VkBuffer,
+		image: vk.VkImage,
+		width, height: u32,
+		pool: vk.VkCommandPool,
+		queue: vk.VkQueue,
+	) {
+		cmd_buffer := begin_single_use_command_buffer(pool);
+
+		region := vk.VkBufferImageCopy {};
+		region.bufferOffset = 0;
+		region.bufferRowLength = 0;
+		region.bufferImageHeight = 0;
+
+		region.imageSubresource.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0;
+		region.imageSubresource.baseArrayLayer = 0;
+		region.imageSubresource.layerCount = 1;
+
+		region.imageOffset = {0,0,0};
+		region.imageExtent = {width, height, 1};
+
+		vk.vkCmdCopyBufferToImage(cmd_buffer, buffer, image, .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+		end_single_use_command_buffer(cmd_buffer, queue, pool);
+	}
+
+
+	end_single_use_command_buffer :: proc(command_buffer: vk.VkCommandBuffer, queue: vk.VkQueue, pool: vk.VkCommandPool
+	) {
+		vk.vkEndCommandBuffer(command_buffer);
+		img_submit_info := vk.VkSubmitInfo {};
+		img_submit_info.sType = .VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		img_submit_info.commandBufferCount = 1;
+		cmd_buf := command_buffer;
+		img_submit_info.pCommandBuffers = &cmd_buf;
+
+		vk.vkQueueSubmit(queue, 1, &img_submit_info, nil);
+		vk.vkQueueWaitIdle(queue);
+		vk.vkFreeCommandBuffers(VK_DEVICE(), pool, 1, &cmd_buf);
+	}
+
+
+	transition_image_layout(
+		image,
+		.VK_FORMAT_R8G8B8A8_SRGB,
+		.VK_IMAGE_LAYOUT_UNDEFINED,
+		.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		graphics_command_pool,
+		graphics_queue,
+	);
+
+	copy_buffer_to_image(
+		img_buffer.handle,
+		image,
+		u32(img_x),
+		u32(img_y),
+		graphics_command_pool,
+		graphics_queue,
+	);
+
+
+	transition_image_layout(
+		image,
+		.VK_FORMAT_R8G8B8A8_SRGB,
+		.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		graphics_command_pool,
+		graphics_queue,
+	);
+
+	create_image_view :: proc(image :vk.VkImage, format: vk.VkFormat) -> vk.VkImageView {
+
+		image_view_info := vk.VkImageViewCreateInfo {};
+		image_view_info.sType = .VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;// VkStructureType,
+		// image_view_info.pNext = // rawptr,
+		// image_view_info.flags = // VkImageViewCreateFlags,
+		image_view_info.image = image;// VkImage,
+		image_view_info.viewType = .VK_IMAGE_VIEW_TYPE_2D;// VkImageViewType,
+		image_view_info.format = format;// VkFormat,
+		// image_view_info.components = {} // VkComponentMapping,
+		// image_view_info.subresourceRange = // VkImageSubresourceRange,
+		image_view_info.subresourceRange.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
+		image_view_info.subresourceRange.baseMipLevel = 0;
+		image_view_info.subresourceRange.levelCount = 1;
+		image_view_info.subresourceRange.baseArrayLayer = 0;
+		image_view_info.subresourceRange.layerCount = 1;
+
+		img_view :vk.VkImageView = ---;
+		VK_CHECK(vk.vkCreateImageView(VK_DEVICE(), &image_view_info, nil, &img_view));
+		return img_view;
+	}
+
+	my_image_view := create_image_view(image, .VK_FORMAT_R8G8B8A8_SRGB);
+
 
 	// VkCommandPoolCreateInfo present_command_pool_info {};
 	// present_command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -802,42 +1002,31 @@ main :: proc() {
 	vk.vkAllocateCommandBuffers(device, &command_buffer_info, &command_buffers[0]);
 
 
-	command_buffer_begin_info := vk.VkCommandBufferBeginInfo {};
-	command_buffer_begin_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	my_mesh := Mesh_Info {
+		vertex_buffer = &vertex_buffer,
+		index_buffer = &index_buffer,
+		index_count = len(triangle_indices),
+	};
 
-	render_pass_begin_info := vk.VkRenderPassBeginInfo {};
-	render_pass_begin_info.sType = .VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	render_pass_begin_info.renderPass = render_pass;
-	clear_color := vk.VkClearValue {};
-	clear_color.color.float32 = [4]f32 {0., 0., 0., 1.};
-	render_pass_begin_info.clearValueCount = 1;
-	render_pass_begin_info.pClearValues = &clear_color;
+	my_mesh_draw := Mesh_Draw_Info {
+		pipeline = {pipeline, pipeline_layout},
+		mesh = &my_mesh,
+		descriptor_set = descriptor_sets[0],
+	};
 
-	for idx in 0..< swapchain_image_count {
-		command_buffer := command_buffers[idx];
+	my_mesh_draw2 := Mesh_Draw_Info {
+		pipeline = {pipeline, pipeline_layout},
+		mesh = &my_mesh,
+		descriptor_set = descriptor_sets[1],
+	};
 
-		VK_CHECK(vk.vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info));
+	to_draw := []Mesh_Draw_Info {
+		my_mesh_draw,
+		my_mesh_draw2,
+	};
 
-		render_pass_begin_info.framebuffer = framebuffers[idx];
-		render_pass_begin_info.renderArea.extent = surface_extents;
+	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass);
 
-		vk.vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, .VK_SUBPASS_CONTENTS_INLINE);
-
-		vk.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-		vk.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-		vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-		b_offset :vk.VkDeviceSize = 0;
-		vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, &b_offset);
-		vk.vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, .VK_INDEX_TYPE_UINT32);
-
-		vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1, &descriptor_sets[idx], 0, nil);
-
-		vk.vkCmdDrawIndexed(command_buffer, 6, 1, 0, 0, 0);
-
-		vk.vkCmdEndRenderPass(command_buffer);
-		VK_CHECK(vk.vkEndCommandBuffer(command_buffer));
-	}
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
 
@@ -863,9 +1052,16 @@ main :: proc() {
 
 	current_frame := 0;
 
-
+	rot := f32(0);
 	for !glfw.window_should_close(win) {
 		glfw.poll_events();
+
+		rot += 0.05;
+		ubo.model = linalg.matrix4_rotate(rot/10, {0, 0, 1});
+		buffer_sync(&uniform_buffer);
+
+		ubo2.model = linalg.matrix4_rotate(-rot/3.5, {0, 1, 1});
+		buffer_sync(&uniform_buffer2);
 
 		vk.vkWaitForFences(device, 1, &in_flight_fences[current_frame], true, bits.U64_MAX);
 
@@ -926,12 +1122,16 @@ main :: proc() {
 			swapchain_info.imageExtent = surface_extents;
 			VK_CHECK(vk.vkCreateSwapchainKHR(device, &swapchain_info, nil, &swapchain));
 
+			my_swapchain.swapchain = swapchain;
+			my_swapchain.width = u32(width);
+			my_swapchain.height = u32(height);
+
 			vk.vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nil);
 			vk.vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, &swapchain_images[0]);
 
 			for idx in 0..< swapchain_image_count {
-				image_view_info.image = swapchain_images[idx];
-				VK_CHECK(vk.vkCreateImageView(device, &image_view_info, nil, &swapchain_image_views[idx]));
+				// todo: clean previous imageviews
+				swapchain_image_views[idx] = create_image_view(swapchain_images[idx], desired_format.format);
 			}
 
 			for idx in 0..< swapchain_image_count {
@@ -941,33 +1141,7 @@ main :: proc() {
 				VK_CHECK(vk.vkCreateFramebuffer(device, &framebuffer_info, nil, &framebuffers[idx]));
 			}
 
-			// vkAllocateCommandBuffers(device, &command_buffer_info, command_buffers);
-
-			for idx in 0..< swapchain_image_count {
-				command_buffer := command_buffers[idx];
-
-				VK_CHECK(vk.vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info));
-
-				render_pass_begin_info.framebuffer = framebuffers[idx];
-				render_pass_begin_info.renderArea.extent = surface_extents;
-
-				vk.vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, .VK_SUBPASS_CONTENTS_INLINE);
-
-				viewport.width = f32(surface_extents.width);
-				viewport.height = f32(surface_extents.height);
-				scissor.extent = surface_extents;
-
-				vk.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-				vk.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-				vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-				// test if setting viewpor here is different
-
-				vk.vkCmdDraw(command_buffer, 3, 1, 0, 0);
-
-				vk.vkCmdEndRenderPass(command_buffer);
-				VK_CHECK(vk.vkEndCommandBuffer(command_buffer));
-			}
+			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass);
 
 		}
 
@@ -976,3 +1150,231 @@ main :: proc() {
 }
 
 
+
+
+get_descriptor_sets :: proc(
+	descriptor_pool :vk.VkDescriptorPool,
+	descriptor_set_layout: vk.VkDescriptorSetLayout,
+	count :u32,
+) -> []vk.VkDescriptorSet {
+
+	layouts := make([]vk.VkDescriptorSetLayout, count);
+	defer delete(layouts);
+
+	for idx in 0..<count {
+		layouts[idx] = descriptor_set_layout;
+	}
+
+	descriptor_set_alloc_info := vk.VkDescriptorSetAllocateInfo {};
+	descriptor_set_alloc_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	// descriptor_set_alloc_info.pNext = ;//: rawptr,
+	descriptor_set_alloc_info.descriptorPool = descriptor_pool;//: VkDescriptorPool,
+	descriptor_set_alloc_info.descriptorSetCount = count;//: u32,
+	descriptor_set_alloc_info.pSetLayouts = &layouts[0];//: ^VkDescriptorSetLayout,
+
+	descriptor_sets := make([]vk.VkDescriptorSet, count);
+
+	VK_CHECK(vk.vkAllocateDescriptorSets(VK_DEVICE(), &descriptor_set_alloc_info, &descriptor_sets[0]));
+
+	return descriptor_sets;
+}
+
+update_binding :: proc (
+	descriptor_set :vk.VkDescriptorSet,
+	buffer         :^Buffer,
+	binding        :u32,
+) {
+
+	descriptor_buffer_info := vk.VkDescriptorBufferInfo {};
+	descriptor_buffer_info.buffer = buffer.handle;
+	descriptor_buffer_info.offset = 0;
+	descriptor_buffer_info.range = buffer.size;
+
+	descriptor_write := vk.VkWriteDescriptorSet {};
+	descriptor_write.sType = .VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptor_write.dstSet = descriptor_set;
+	descriptor_write.dstBinding = binding;
+	descriptor_write.dstArrayElement = 0;
+	descriptor_write.descriptorCount = 1;
+	descriptor_write.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	descriptor_write.pBufferInfo = &descriptor_buffer_info;
+
+	vk.vkUpdateDescriptorSets(VK_DEVICE(), 1, &descriptor_write, 0, nil);
+}
+
+VK_DEVICE :: proc() -> vk.VkDevice { return auto_cast context.user_ptr; }
+
+
+Buffer :: struct {
+	handle :vk.VkBuffer,
+	memory :vk.VkDeviceMemory,
+	size :u64,
+	data :rawptr
+};
+
+make_buffer :: proc( in_data: rawptr,  size: uint, device: vk.VkDevice, physical_device: vk.VkPhysicalDevice, usage: vk.VkBufferUsageFlags
+) -> Buffer {
+
+	my_buffer := Buffer {
+		size = u64(size),
+		data = in_data,
+	};
+
+	buffer_info := vk.VkBufferCreateInfo {};
+	buffer_info.sType = .VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	buffer_info.pNext = nil;
+	buffer_info.size = my_buffer.size;
+	buffer_info.usage = usage;
+	buffer_info.sharingMode = .VK_SHARING_MODE_EXCLUSIVE;
+
+	buffer :vk.VkBuffer = ---;
+	VK_CHECK(vk.vkCreateBuffer(device, &buffer_info, nil, &buffer));
+	my_buffer.handle = buffer;
+	mem_requirements :vk.VkMemoryRequirements = ---;
+	vk.vkGetBufferMemoryRequirements(device, buffer, &mem_requirements);
+
+
+	mem_properties :vk.VkPhysicalDeviceMemoryProperties = ---;
+	vk.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
+
+	type_index :u32 = ---;
+	for idx in 0..<mem_properties.memoryTypeCount {
+		mem_type := mem_properties.memoryTypes[idx];
+		mask := (vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+		if (mem_type.propertyFlags & mask) == mask{
+			type_index = idx;
+			break;
+		}
+	}
+	assert(type_index != ---);
+
+
+	alloc_info := vk.VkMemoryAllocateInfo {};
+	alloc_info.sType = .VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc_info.allocationSize = mem_requirements.size;
+	alloc_info.memoryTypeIndex = u32(type_index);
+
+	device_memory :vk.VkDeviceMemory = ---;
+	VK_CHECK(vk.vkAllocateMemory(device, &alloc_info, nil, &device_memory));
+
+	my_buffer.memory = device_memory;
+
+	vk.vkBindBufferMemory(device, buffer, device_memory, 0);
+	buffer_sync(&my_buffer);
+	return my_buffer;
+}
+
+buffer_sync :: proc(buffer :^Buffer){
+	data :rawptr = ---;
+
+	vk.vkMapMemory(VK_DEVICE(), buffer.memory, 0, buffer.size, 0, &data);
+	mem.copy(data, buffer.data, int(buffer.size));
+	vk.vkUnmapMemory(VK_DEVICE(), buffer.memory);
+}
+
+
+update_command_buffers :: proc (
+	swapchain: ^Swapchain,
+	command_buffers: []vk.VkCommandBuffer,
+	framebuffers: []vk.VkFramebuffer,
+	mesh_draw_infos: []Mesh_Draw_Info,
+	render_pass: vk.VkRenderPass,
+) {
+	for idx in 0..< swapchain.image_count {
+		command_buffer := command_buffers[idx];
+		framebuffer := framebuffers[idx];
+		begin_command_buffer(command_buffer, render_pass, framebuffer, swapchain);
+
+		for mesh_draw_info in mesh_draw_infos {
+			// draw each thing . . .
+			vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_draw_info.pipeline.pipeline);
+
+			b_offset :vk.VkDeviceSize = 0;
+			mesh_info := mesh_draw_info.mesh;
+			vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &mesh_info.vertex_buffer.handle, &b_offset);
+			vk.vkCmdBindIndexBuffer(command_buffer, mesh_info.index_buffer.handle, 0, .VK_INDEX_TYPE_UINT32);
+
+			my_descriptor_set := mesh_draw_info.descriptor_set;
+			vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_draw_info.pipeline.layout, 0, 1, &my_descriptor_set, 0, nil);
+
+			vk.vkCmdDrawIndexed(command_buffer, mesh_info.index_count, 1, 0, 0, 0);
+
+		}
+		end_command_buffer(command_buffer);
+	}
+}
+begin_command_buffer :: proc(
+	command_buffer :vk.VkCommandBuffer,
+	render_pass :vk.VkRenderPass,
+	framebuffer :vk.VkFramebuffer,
+	swapchain: ^Swapchain,
+) {
+
+	command_buffer_begin_info := vk.VkCommandBufferBeginInfo {};
+	command_buffer_begin_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+	VK_CHECK(vk.vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info));
+
+	render_pass_begin_info := vk.VkRenderPassBeginInfo {};
+	render_pass_begin_info.sType = .VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	render_pass_begin_info.renderPass = render_pass;
+	clear_color := vk.VkClearValue {};
+	clear_color.color.float32 = [4]f32 {0., 0., 0., 1.};
+	render_pass_begin_info.clearValueCount = 1;
+	render_pass_begin_info.pClearValues = &clear_color;
+
+
+	scissor := vk.VkRect2D {};
+	scissor.extent = {swapchain.width, swapchain.height};
+
+	render_pass_begin_info.framebuffer = framebuffer;
+	render_pass_begin_info.renderArea.extent = scissor.extent;
+
+
+	vk.vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, .VK_SUBPASS_CONTENTS_INLINE);
+
+	viewport := vk.VkViewport {};
+	viewport.x = 0;
+	viewport.y = 0;
+	viewport.width = f32(swapchain.width);
+	viewport.height = f32(swapchain.height);
+	viewport.minDepth = 0;
+	viewport.maxDepth = 1;
+
+	vk.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+	vk.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+}
+end_command_buffer :: proc(command_buffer: vk.VkCommandBuffer) {
+
+
+	vk.vkCmdEndRenderPass(command_buffer);
+	VK_CHECK(vk.vkEndCommandBuffer(command_buffer));
+}
+
+
+
+Swapchain :: struct {
+	width       :u32,
+	height      :u32,
+	swapchain   :vk.VkSwapchainKHR,
+	image_count :u32,
+};
+
+
+Mesh_Info :: struct {
+	vertex_buffer :^Buffer,
+	index_buffer :^Buffer,
+	index_count :u32,
+};
+
+Mesh_Draw_Info :: struct {
+	pipeline       :Pipeline,
+	mesh           :^Mesh_Info,
+	descriptor_set :vk.VkDescriptorSet,
+};
+
+Pipeline :: struct {
+	pipeline :vk.VkPipeline,
+	layout   :vk.VkPipelineLayout,
+};
