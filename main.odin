@@ -13,6 +13,7 @@ import glfw_bindings "odin-glfw/bindings"
 import vk "vk_bindings"
 
 import "odin-stb/stbi"
+import "odin-stb/stbtt"
 
 debugCallback :: proc (
 	messageSeverity: vk.VkDebugUtilsMessageSeverityFlagBitsEXT,
@@ -30,7 +31,7 @@ VK_CHECK :: proc(res: vk.VkResult) {
 }
 
 main :: proc() {
-
+	context.user_ptr = new(Context);
 	fmt.println("START");
 
 	glfw.init();
@@ -149,6 +150,8 @@ main :: proc() {
 
 
 	physical_device := physical_devices[selected_device];
+	ctx := get_context();
+	ctx.physical_device = physical_device;
 
 	queue_family_props :[10]vk.VkQueueFamilyProperties = ---;
 	queue_family_count :u32 = len(queue_family_props);
@@ -331,7 +334,7 @@ main :: proc() {
 
 	r = vk.vkCreateDevice(physical_device, &device_info, nil, &device);
 	assert(r == .VK_SUCCESS);
-	context.user_ptr = device;
+	ctx.device = device;
 	fmt.println("Created vulkan device");
 
 
@@ -367,49 +370,11 @@ main :: proc() {
 	vk.vkGetDeviceQueue(device, present_queue_family_idx, 0, &present_queue);
 
 
-
-	vertex_spv, success := os.read_entire_file("content/shader_4.vert.spv");
-	assert(success);
-
-	fragment_spv, success2 := os.read_entire_file("content/shader_4.frag.spv");
-	assert(success2);
-
-	vertex_shader_info := vk.VkShaderModuleCreateInfo {};
-	vertex_shader_info.sType = .VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	vertex_shader_info.codeSize = u64(len(vertex_spv));
-	vertex_shader_info.pCode = (^u32) (&vertex_spv[0]);
-
-
-	fragment_shader_info := vk.VkShaderModuleCreateInfo {};
-	fragment_shader_info.sType = .VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	fragment_shader_info.codeSize = u64(len(fragment_spv));
-	fragment_shader_info.pCode = (^u32)( &fragment_spv[0] );
-
-
-
-	vertex_shader_module :vk.VkShaderModule = ---;
-	fragment_shader_module :vk.VkShaderModule = ---;
-	VK_CHECK(vk.vkCreateShaderModule(device, &vertex_shader_info, nil, &vertex_shader_module));
-	VK_CHECK(vk.vkCreateShaderModule(device, &fragment_shader_info, nil, &fragment_shader_module));
-
-	vertex_stage_info := vk.VkPipelineShaderStageCreateInfo {};
-	vertex_stage_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	vertex_stage_info.stage = .VK_SHADER_STAGE_VERTEX_BIT;
-	vertex_stage_info.module = vertex_shader_module;
-	vertex_stage_info.pName = cstring("main");
-
-	fragment_stage_info := vk.VkPipelineShaderStageCreateInfo {};
-	fragment_stage_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	fragment_stage_info.stage = .VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragment_stage_info.module = fragment_shader_module;
-	fragment_stage_info.pName = cstring("main");
-
-	shader_stages := []vk.VkPipelineShaderStageCreateInfo{ vertex_stage_info, fragment_stage_info };
-
 	Vertex :: struct {
 		position :[3]f32,
 		uv :[2]f32,
 	};
+
 
 	triangle := [4]Vertex {
 	    {{-0.5, -0.5, 0.5},  {0.0, 0.0}},
@@ -421,6 +386,9 @@ main :: proc() {
 	triangle_indices := [6]u32 {
 		0, 1, 2,  0, 2, 3
 	};
+
+
+
 
 	binding_description := vk.VkVertexInputBindingDescription {};
 	binding_description.binding = 0;
@@ -444,112 +412,13 @@ main :: proc() {
 		attrib_uv_description,
 	};
 
+
 	vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
 	vertex_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 	vertex_info.vertexBindingDescriptionCount = 1;
 	vertex_info.pVertexBindingDescriptions = &binding_description;
 	vertex_info.vertexAttributeDescriptionCount = u32(len(attrib_descriptions));
 	vertex_info.pVertexAttributeDescriptions = &attrib_descriptions[0];
-
-
-
-	assembly_info := vk.VkPipelineInputAssemblyStateCreateInfo {};
-	assembly_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-	assembly_info.topology = .VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-	assembly_info.primitiveRestartEnable = false;
-
-	viewport := vk.VkViewport {};
-	viewport.x = 0;
-	viewport.y = 0;
-	viewport.width = f32(surface_extents.width);
-	viewport.height = f32(surface_extents.height);
-	viewport.minDepth = 0;
-	viewport.maxDepth = 1;
-
-	scissor := vk.VkRect2D {};
-	scissor.extent = surface_extents;
-
-	viewport_state := vk.VkPipelineViewportStateCreateInfo {};
-	viewport_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewport_state.viewportCount = 1;
-	viewport_state.pViewports = &viewport;
-	viewport_state.scissorCount = 1;
-	viewport_state.pScissors = &scissor;
-
-	rasterization_state := vk.VkPipelineRasterizationStateCreateInfo{};
-	rasterization_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterization_state.depthClampEnable = false;
-	rasterization_state.rasterizerDiscardEnable = false;
-	rasterization_state.polygonMode = .VK_POLYGON_MODE_FILL;
-	rasterization_state.cullMode = .VK_CULL_MODE_BACK_BIT;
-	rasterization_state.frontFace = .VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	rasterization_state.depthBiasEnable = false;
-	// rasterization_state.depthBiasConstantFactor;
-	// rasterization_state.depthBiasClamp;
-	// rasterization_state.depthBiasSlopeFactor;
-	rasterization_state.lineWidth = 1;
-
-
-	multisample_info := vk.VkPipelineMultisampleStateCreateInfo {};
-	multisample_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample_info.rasterizationSamples = .VK_SAMPLE_COUNT_1_BIT;
-	multisample_info.sampleShadingEnable = false;
-	// float                    minSampleShading;
-	// const  VkSampleMask *     pSampleMask;
-	// multisample_info.alphaToCoverageEnable;
-	// multisample_info.alphaToOneEnable;
-
-	color_blend_attachment := vk.VkPipelineColorBlendAttachmentState {};
-	color_blend_attachment.blendEnable = false;
-
-	// color_blend_attachment.srcColorBlendFactor = .VK_BLEND_FACTOR_SRC_ALPHA;//: VkBlendFactor,
-	// color_blend_attachment.dstColorBlendFactor = .VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;//: VkBlendFactor,
-	// color_blend_attachment.colorBlendOp = //: VkBlendOp,
-	// color_blend_attachment.srcAlphaBlendFactor = //: VkBlendFactor,
-	// color_blend_attachment.dstAlphaBlendFactor = //: VkBlendFactor,
-	// color_blend_attachment.alphaBlendOp = //: VkBlendOp,
-
-/*	depth_stencil_state :vk.VkPipelineDepthStencilStateCreateInfo = ---;
-	depth_stencil_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;//: VkStructureType,
-	// depth_stencil_state.pNext = //: rawptr,
-	// depth_stencil_state.flags = //: VkPipelineDepthStencilStateCreateFlags,
-	depth_stencil_state.depthTestEnable = true;//: VkBool32,
-	depth_stencil_state.depthWriteEnable = true;//: VkBool32,
-	depth_stencil_state.depthCompareOp = .VK_COMPARE_OP_LESS;//: VkCompareOp,
-	depth_stencil_state.depthBoundsTestEnable = false;//: VkBool32,
-	depth_stencil_state.stencilTestEnable = false;//: VkBool32,
-	// depth_stencil_state.front = //: VkStencilOpState,
-	// depth_stencil_state.back = //: VkStencilOpState,
-	depth_stencil_state.minDepthBounds = 0;//: f32,
-	depth_stencil_state.maxDepthBounds = 1;//: f32,
-*/
-
-	color_blend_attachment.colorWriteMask = (
-		.VK_COLOR_COMPONENT_R_BIT |
-		.VK_COLOR_COMPONENT_G_BIT |
-		.VK_COLOR_COMPONENT_B_BIT |
-		.VK_COLOR_COMPONENT_A_BIT
-	);
-
-	color_blend_info := vk.VkPipelineColorBlendStateCreateInfo {};
-	color_blend_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	color_blend_info.logicOpEnable = false;
-	// VkLogicOp                logicOp;
-	color_blend_info.attachmentCount = 1;
-	color_blend_info.pAttachments = &color_blend_attachment;
-	// float                    blendConstants [4];
-
-	dynamic_states := []vk.VkDynamicState {
-	    .VK_DYNAMIC_STATE_VIEWPORT,
-	    .VK_DYNAMIC_STATE_SCISSOR,
-	};
-
-	dynamic_state_info := vk.VkPipelineDynamicStateCreateInfo {};
-	dynamic_state_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
- 	dynamic_state_info.dynamicStateCount = u32(len(dynamic_states));
-	dynamic_state_info.pDynamicStates = &dynamic_states[0];
-
-
 
 
 
@@ -635,25 +504,6 @@ main :: proc() {
 	render_pass :vk.VkRenderPass = ---;
 	VK_CHECK(vk.vkCreateRenderPass(device, &render_pass_info, nil, &render_pass));
 
-	graphics_pipeline_info := vk.VkGraphicsPipelineCreateInfo {};
-	graphics_pipeline_info.sType = .VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	graphics_pipeline_info.stageCount = u32(len(shader_stages));
-	graphics_pipeline_info.pStages = &shader_stages[0];
-	graphics_pipeline_info.pVertexInputState = &vertex_info;
-	graphics_pipeline_info.pInputAssemblyState = &assembly_info;
-	// const  VkPipelineTessellationStateCreateInfo *  pTessellationState;
-	graphics_pipeline_info.pViewportState = &viewport_state;
-	graphics_pipeline_info.pRasterizationState = &rasterization_state;
-	graphics_pipeline_info.pMultisampleState = &multisample_info;
-	// graphics_pipeline_info.pDepthStencilState = &depth_stencil_state;
-	graphics_pipeline_info.pColorBlendState = &color_blend_info;
-	graphics_pipeline_info.pDynamicState = &dynamic_state_info;
-	graphics_pipeline_info.layout = pipeline_layout;
-	graphics_pipeline_info.renderPass = render_pass;
-	graphics_pipeline_info.subpass = 0;
-	graphics_pipeline_info.basePipelineHandle = nil;
-	graphics_pipeline_info.basePipelineIndex = -1;
-
 	pipeline_cache_info := vk.VkPipelineCacheCreateInfo {};
 	pipeline_cache_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 	pipeline_cache_info.initialDataSize = 0;
@@ -662,8 +512,51 @@ main :: proc() {
 	pipeline_cache :vk.VkPipelineCache = ---;
 	VK_CHECK(vk.vkCreatePipelineCache(device, &pipeline_cache_info, nil, &pipeline_cache));
 
-	pipeline :vk.VkPipeline = ---;
-	VK_CHECK(vk.vkCreateGraphicsPipelines(device, pipeline_cache, 1, &graphics_pipeline_info, nil, &pipeline));
+
+	shader_stages := create_shader_stages("content/shader_4.vert.spv", "content/shader_4.frag.spv");
+	pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &vertex_info, pipeline_layout, shader_stages[:]);
+
+
+
+
+	text_instance_binding := vk.VkVertexInputBindingDescription {};
+	text_instance_binding.binding = 0;
+	text_instance_binding.stride = size_of(stbtt.Aligned_Quad);
+	text_instance_binding.inputRate = .VK_VERTEX_INPUT_RATE_INSTANCE;
+
+	text_attrib_desc_0 := vk.VkVertexInputAttributeDescription {};
+	text_attrib_desc_0.binding = 0;
+	text_attrib_desc_0.location = 0;
+	text_attrib_desc_0.format = .VK_FORMAT_R32G32B32A32_SFLOAT;
+	text_attrib_desc_0.offset = u32(offset_of(stbtt.Aligned_Quad, x0));
+
+	text_attrib_desc_1 := vk.VkVertexInputAttributeDescription {};
+	text_attrib_desc_1.binding = 0;
+	text_attrib_desc_1.location = 1;
+	text_attrib_desc_1.format = .VK_FORMAT_R32G32B32A32_SFLOAT;
+	text_attrib_desc_1.offset = u32(offset_of(stbtt.Aligned_Quad, x1));
+
+	text_attrib_descriptions := []vk.VkVertexInputAttributeDescription {
+		text_attrib_desc_0,
+		text_attrib_desc_1,
+	};
+
+	// text_binding_descriptions := []vk.VkVertexInputBindingDescription {
+	// 	binding_description,
+	// 	text_instance_binding,
+	// }
+
+
+	text_vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
+	text_vertex_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	text_vertex_info.vertexBindingDescriptionCount = 1;
+	text_vertex_info.pVertexBindingDescriptions = &text_instance_binding;
+	text_vertex_info.vertexAttributeDescriptionCount = u32(len(text_attrib_descriptions));
+	text_vertex_info.pVertexAttributeDescriptions = &text_attrib_descriptions[0];
+
+
+	text_shader_stages := create_shader_stages("content/shader_text.vert.spv", "content/shader_text.frag.spv");
+	text_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &text_vertex_info, pipeline_layout, text_shader_stages[:]);
 
 
 
@@ -683,8 +576,8 @@ main :: proc() {
 
 
 
-	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), device, physical_device, .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-	vertex_buffer := make_buffer(&triangle[0], size_of(triangle), device, physical_device, .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	vertex_buffer := make_buffer(&triangle[0], size_of(triangle), .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
 
 
@@ -742,8 +635,8 @@ main :: proc() {
 	ubo2.proj = ubo.proj;
 	// ubo2.proj = linalg.matrix4_scale({1/aspect, -1, 1});
 
-	uniform_buffer := make_buffer(&ubo,   size_of(ubo), device, physical_device, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-	uniform_buffer2 := make_buffer(&ubo2, size_of(ubo2), device, physical_device, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+	uniform_buffer := make_buffer(&ubo,   size_of(ubo), .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+	uniform_buffer2 := make_buffer(&ubo2, size_of(ubo2), .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 
 	update_binding(descriptor_sets[0], 0, &uniform_buffer);
@@ -754,66 +647,58 @@ main :: proc() {
 	image_data := stbi.load("content/texture.jpg", &img_x, &img_y, &img_channels, 4);
 
 	img_size := img_x * img_y * 4;
-	img_buffer := make_buffer(image_data, uint(img_size), device, physical_device, .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+	img_buffer := make_buffer(image_data, int(img_size), .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 	stbi.image_free(image_data);
 
 
+	char_file, ss := os.read_entire_file("odin-stb/consola.ttf");
+	assert(ss);
+
+	font_tex_size := [2]u32 {512, 512};
+	font_pixels := make([]u8, font_tex_size.x * font_tex_size.y);
+	first_char := 32; //space
+	num_chars := 95; // from 32 to 126
+
+	char_data, result := stbtt.bake_font_bitmap(
+		char_file, 0, // data, offset
+		64, //pixel_height
+		font_pixels, //storage
+		int(font_tex_size.x), int(font_tex_size.y),
+		first_char, num_chars,
+	);
+
+	font_buffer := make_buffer(&font_pixels[0], len(font_pixels), .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+
+	texto := "0xAFBF";
 
 
-	img_info := vk.VkImageCreateInfo {};
-	img_info.sType = .VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;//: VkStructureType,
-	// img_info.pNext = //: rawptr,
-	// img_info.flags = //: VkImageCreateFlags,
-	img_info.imageType = .VK_IMAGE_TYPE_2D;//: VkImageType,
-	img_info.format = .VK_FORMAT_R8G8B8A8_SRGB;//: VkFormat,
-	img_info.extent = {u32(img_x), u32(img_y), 1};//: VkExtent3D,
-	img_info.mipLevels = 1;//: u32,
-	img_info.arrayLayers = 1;//: u32,
-	img_info.samples = .VK_SAMPLE_COUNT_1_BIT;//: VkSampleCountFlagBits,
-	img_info.tiling = .VK_IMAGE_TILING_OPTIMAL;//: VkImageTiling,
-	img_info.usage = .VK_IMAGE_USAGE_TRANSFER_DST_BIT | .VK_IMAGE_USAGE_SAMPLED_BIT;
-	img_info.sharingMode = .VK_SHARING_MODE_EXCLUSIVE;//: VkSharingMode,
-	// img_info.queueFamilyIndexCount = //: u32,
-	// img_info.pQueueFamilyIndices = //: ^u32,
-	img_info.initialLayout = .VK_IMAGE_LAYOUT_UNDEFINED;//: VkImageLayout,
+	text_num_chars := len(texto);
+	text_data := make([]stbtt.Aligned_Quad, text_num_chars);
 
-	image :vk.VkImage = ---;
-	VK_CHECK(vk.vkCreateImage(VK_DEVICE(), &img_info, nil, &image));
+	xpos :f32= 0;
+	ypos :f32= 0;
+	char_quad: stbtt.Aligned_Quad = ---;
+	for idx in 0..<text_num_chars {
+		char_id := int(texto[idx]) - first_char;
 
-
-	img_mem_requirements :vk.VkMemoryRequirements = ---;
-	vk.vkGetImageMemoryRequirements(VK_DEVICE(), image, &img_mem_requirements);
-
-	alloc_info := vk.VkMemoryAllocateInfo {};
-	alloc_info.sType = .VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-	alloc_info.allocationSize = img_mem_requirements.size;
-
-	mem_properties :vk.VkPhysicalDeviceMemoryProperties = ---;
-	vk.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
-
-	properties :vk.VkMemoryPropertyFlags = .VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-	memory_type_idx :u32 = ---;
-	for idx in 0..<mem_properties.memoryTypeCount {
-		if img_mem_requirements.memoryTypeBits & 1<<idx != 0 {
-			memory_type := mem_properties.memoryTypes[idx];
-			if (memory_type.propertyFlags & properties) == properties {
-				memory_type_idx = idx;
-				break;
-			}
-		}
+		xpos, ypos, char_quad = stbtt.get_baked_quad(char_data, int(font_tex_size.x), int(font_tex_size.y), char_id, true);
+		fmt.println("char quad:", char_quad);
+		text_data[idx] = char_quad;
 	}
 
-	alloc_info.memoryTypeIndex = memory_type_idx;
-
-	image_memory :vk.VkDeviceMemory = ---;
-	VK_CHECK(vk.vkAllocateMemory(VK_DEVICE(), &alloc_info, nil, &image_memory) );
-	vk.vkBindImageMemory(device, image, image_memory, 0);
+	text_draw_info := Text_Draw_Info {};
+	text_draw_info.char_count = text_num_chars;
 
 
+	text_buffer := make_buffer(&text_data[0], size_of(stbtt.Aligned_Quad) * text_num_chars, .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+	text_draw_info.buffer = &text_buffer;
+
+	text_draw_info.pipeline = {text_pipeline, pipeline_layout};
 
 
-
-
+	my_image := create_image(u32 (img_x), u32 (img_y), .VK_FORMAT_R8G8B8A8_SRGB);
+	image := my_image.handle;
+	my_font_image := create_image(font_tex_size.x, font_tex_size.y, .VK_FORMAT_R8_UNORM);
 
 	graphics_command_pool_info := vk.VkCommandPoolCreateInfo {};
 	graphics_command_pool_info.sType = .VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -824,188 +709,11 @@ main :: proc() {
 	vk.vkCreateCommandPool(device, &graphics_command_pool_info, nil, &graphics_command_pool);
 
 
+	fill_image_with_buffer(&my_image, &img_buffer, graphics_command_pool, graphics_queue);
+	fill_image_with_buffer(&my_font_image, &font_buffer, graphics_command_pool, graphics_queue);
 
-	begin_single_use_command_buffer :: proc(pool: vk.VkCommandPool) -> vk.VkCommandBuffer {
-
-		cmd_buffer_info := vk.VkCommandBufferAllocateInfo {};
-		cmd_buffer_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-		// cmd_buffer_info.pNext = //: rawptr,
-		cmd_buffer_info.commandPool = pool;
-		cmd_buffer_info.level = .VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-		cmd_buffer_info.commandBufferCount = 1;
-
-		cmd_buffer :vk.VkCommandBuffer = ---;
-		vk.vkAllocateCommandBuffers(VK_DEVICE(), &cmd_buffer_info, &cmd_buffer);
-
-		begin_info := vk.VkCommandBufferBeginInfo {};
-		begin_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		begin_info.flags = .VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-		vk.vkBeginCommandBuffer(cmd_buffer, &begin_info);
-		return cmd_buffer;
-	}
-
-////////
-
-	copy_buffer :: proc(from, to: vk.VkBuffer, size: vk.VkDeviceSize, pool: vk.VkCommandPool, queue: vk.VkQueue) {
-		img_command_buffer := begin_single_use_command_buffer(pool);
-		copy_region := vk.VkBufferCopy {};
-		copy_region.size = size;
-		vk.vkCmdCopyBuffer(img_command_buffer, from, to, 1, &copy_region);
-
-		end_single_use_command_buffer(img_command_buffer, queue, pool);
-	}
-
-
-	transition_image_layout :: proc(
-		image: vk.VkImage,
-		format: vk.VkFormat,
-		old_layout: vk.VkImageLayout,
-		new_layout: vk.VkImageLayout,
-		pool: vk.VkCommandPool,
-		queue: vk.VkQueue,
-	) {
-		cmd_buffer := begin_single_use_command_buffer(pool);
-
-		barrier := vk.VkImageMemoryBarrier {};
-		barrier.sType = .VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		barrier.oldLayout = old_layout;
-		barrier.newLayout = new_layout;
-		barrier.srcQueueFamilyIndex = 0;
-		barrier.dstQueueFamilyIndex = 0;
-
-		barrier.image = image;
-		barrier.subresourceRange.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
-		barrier.subresourceRange.baseMipLevel = 0;
-		barrier.subresourceRange.levelCount = 1;
-		barrier.subresourceRange.baseArrayLayer = 0;
-		barrier.subresourceRange.layerCount = 1;
-
-		source_stage, destination_stage :vk.VkPipelineStageFlags;
-
-		if (old_layout == .VK_IMAGE_LAYOUT_UNDEFINED
-			&& new_layout == .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-		) {
-			barrier.srcAccessMask = auto_cast 0;
-			barrier.dstAccessMask = .VK_ACCESS_TRANSFER_WRITE_BIT;
-			source_stage = .VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-			destination_stage = .VK_PIPELINE_STAGE_TRANSFER_BIT;
-		} else if (old_layout == .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-			&& new_layout == .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-		) {
-			barrier.srcAccessMask = .VK_ACCESS_TRANSFER_WRITE_BIT;
-			barrier.dstAccessMask = .VK_ACCESS_SHADER_READ_BIT;
-			source_stage = .VK_PIPELINE_STAGE_TRANSFER_BIT;
-			destination_stage = .VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-		} else {
-			fmt.println("ERROR");
-		}
-
-		vk.vkCmdPipelineBarrier(cmd_buffer,
-			source_stage, destination_stage,
-			auto_cast 0,
-			0, nil,
-			0, nil,
-			1, &barrier
-		);
-
-		end_single_use_command_buffer(cmd_buffer, queue, pool);
-	}
-
-	copy_buffer_to_image :: proc(
-		buffer: vk.VkBuffer,
-		image: vk.VkImage,
-		width, height: u32,
-		pool: vk.VkCommandPool,
-		queue: vk.VkQueue,
-	) {
-		cmd_buffer := begin_single_use_command_buffer(pool);
-
-		region := vk.VkBufferImageCopy {};
-		region.bufferOffset = 0;
-		region.bufferRowLength = 0;
-		region.bufferImageHeight = 0;
-
-		region.imageSubresource.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0;
-		region.imageSubresource.baseArrayLayer = 0;
-		region.imageSubresource.layerCount = 1;
-
-		region.imageOffset = {0,0,0};
-		region.imageExtent = {width, height, 1};
-
-		vk.vkCmdCopyBufferToImage(cmd_buffer, buffer, image, .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-		end_single_use_command_buffer(cmd_buffer, queue, pool);
-	}
-
-
-	end_single_use_command_buffer :: proc(command_buffer: vk.VkCommandBuffer, queue: vk.VkQueue, pool: vk.VkCommandPool
-	) {
-		vk.vkEndCommandBuffer(command_buffer);
-		img_submit_info := vk.VkSubmitInfo {};
-		img_submit_info.sType = .VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		img_submit_info.commandBufferCount = 1;
-		cmd_buf := command_buffer;
-		img_submit_info.pCommandBuffers = &cmd_buf;
-
-		vk.vkQueueSubmit(queue, 1, &img_submit_info, nil);
-		vk.vkQueueWaitIdle(queue);
-		vk.vkFreeCommandBuffers(VK_DEVICE(), pool, 1, &cmd_buf);
-	}
-
-
-	transition_image_layout(
-		image,
-		.VK_FORMAT_R8G8B8A8_SRGB,
-		.VK_IMAGE_LAYOUT_UNDEFINED,
-		.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		graphics_command_pool,
-		graphics_queue,
-	);
-
-	copy_buffer_to_image(
-		img_buffer.handle,
-		image,
-		u32(img_x),
-		u32(img_y),
-		graphics_command_pool,
-		graphics_queue,
-	);
-
-
-	transition_image_layout(
-		image,
-		.VK_FORMAT_R8G8B8A8_SRGB,
-		.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		graphics_command_pool,
-		graphics_queue,
-	);
-
-	create_image_view :: proc(image :vk.VkImage, format: vk.VkFormat) -> vk.VkImageView {
-
-		image_view_info := vk.VkImageViewCreateInfo {};
-		image_view_info.sType = .VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;// VkStructureType,
-		// image_view_info.pNext = // rawptr,
-		// image_view_info.flags = // VkImageViewCreateFlags,
-		image_view_info.image = image;// VkImage,
-		image_view_info.viewType = .VK_IMAGE_VIEW_TYPE_2D;// VkImageViewType,
-		image_view_info.format = format;// VkFormat,
-		// image_view_info.components = {} // VkComponentMapping,
-		// image_view_info.subresourceRange = // VkImageSubresourceRange,
-		image_view_info.subresourceRange.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
-		image_view_info.subresourceRange.baseMipLevel = 0;
-		image_view_info.subresourceRange.levelCount = 1;
-		image_view_info.subresourceRange.baseArrayLayer = 0;
-		image_view_info.subresourceRange.layerCount = 1;
-
-		img_view :vk.VkImageView = ---;
-		VK_CHECK(vk.vkCreateImageView(VK_DEVICE(), &image_view_info, nil, &img_view));
-		return img_view;
-	}
-
-	my_image_view := create_image_view(image, .VK_FORMAT_R8G8B8A8_SRGB);
-
+	my_image_view := create_image_view(my_image.handle, my_image.format);
+	my_font_image_view := create_image_view(my_font_image.handle, my_font_image.format);
 
 	sampler_info := vk.VkSamplerCreateInfo {};
 	sampler_info.sType = .VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;//: VkStructureType,
@@ -1029,10 +737,10 @@ main :: proc() {
 	sampler_info.unnormalizedCoordinates = false;//: VkBool32,
 
 	sampler :vk.VkSampler = ---;
-	VK_CHECK(vk.vkCreateSampler(VK_DEVICE(), &sampler_info, nil, &sampler));
+	VK_CHECK(vk.vkCreateSampler(ctx.device, &sampler_info, nil, &sampler));
 
 	update_binding_img(descriptor_sets[0], 1, sampler, my_image_view, .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-	update_binding_img(descriptor_sets[1], 1, sampler, my_image_view, .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	update_binding_img(descriptor_sets[1], 1, sampler, my_font_image_view, .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
 	// VkCommandPoolCreateInfo present_command_pool_info {};
 	// present_command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1074,7 +782,11 @@ main :: proc() {
 		my_mesh_draw2,
 	};
 
-	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass);
+	text_to_draw := []Text_Draw_Info {
+		text_draw_info,
+	};
+
+	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_to_draw);
 
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
@@ -1190,7 +902,7 @@ main :: proc() {
 				VK_CHECK(vk.vkCreateFramebuffer(device, &framebuffer_info, nil, &framebuffers[idx]));
 			}
 
-			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass);
+			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_to_draw);
 
 		}
 
@@ -1223,7 +935,8 @@ get_descriptor_sets :: proc(
 
 	descriptor_sets := make([]vk.VkDescriptorSet, count);
 
-	VK_CHECK(vk.vkAllocateDescriptorSets(VK_DEVICE(), &descriptor_set_alloc_info, &descriptor_sets[0]));
+	ctx := get_context();
+	VK_CHECK(vk.vkAllocateDescriptorSets(ctx.device, &descriptor_set_alloc_info, &descriptor_sets[0]));
 
 	return descriptor_sets;
 }
@@ -1248,7 +961,8 @@ update_binding :: proc (
 	descriptor_write.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	descriptor_write.pBufferInfo = &descriptor_buffer_info;
 
-	vk.vkUpdateDescriptorSets(VK_DEVICE(), 1, &descriptor_write, 0, nil);
+	ctx := get_context();
+	vk.vkUpdateDescriptorSets(ctx.device, 1, &descriptor_write, 0, nil);
 }
 
 
@@ -1274,11 +988,22 @@ update_binding_img :: proc (
 	descriptor_write.descriptorType = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	descriptor_write.pImageInfo = &descriptor_image_info;
 
-	vk.vkUpdateDescriptorSets(VK_DEVICE(), 1, &descriptor_write, 0, nil);
+	ctx := get_context();
+	vk.vkUpdateDescriptorSets(ctx.device, 1, &descriptor_write, 0, nil);
 }
 
-VK_DEVICE :: proc() -> vk.VkDevice { return auto_cast context.user_ptr; }
 
+//context.user_ptr = new(Context);
+Context :: struct {
+	device: vk.VkDevice,
+	physical_device: vk.VkPhysicalDevice,
+};
+get_context :: inline proc() -> ^Context {
+	return (^Context)(context.user_ptr);
+}
+// Usage:
+// ctx := get_context();
+// VkNoseque(ctx.device, ctx.physical_device);
 
 Buffer :: struct {
 	handle :vk.VkBuffer,
@@ -1287,8 +1012,7 @@ Buffer :: struct {
 	data :rawptr
 };
 
-make_buffer :: proc( in_data: rawptr,  size: uint, device: vk.VkDevice, physical_device: vk.VkPhysicalDevice, usage: vk.VkBufferUsageFlags
-) -> Buffer {
+make_buffer :: proc( in_data: rawptr,  size: int, usage: vk.VkBufferUsageFlags) -> Buffer {
 
 	my_buffer := Buffer {
 		size = u64(size),
@@ -1303,14 +1027,15 @@ make_buffer :: proc( in_data: rawptr,  size: uint, device: vk.VkDevice, physical
 	buffer_info.sharingMode = .VK_SHARING_MODE_EXCLUSIVE;
 
 	buffer :vk.VkBuffer = ---;
-	VK_CHECK(vk.vkCreateBuffer(device, &buffer_info, nil, &buffer));
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateBuffer(ctx.device, &buffer_info, nil, &buffer));
 	my_buffer.handle = buffer;
 	mem_requirements :vk.VkMemoryRequirements = ---;
-	vk.vkGetBufferMemoryRequirements(device, buffer, &mem_requirements);
+	vk.vkGetBufferMemoryRequirements(ctx.device, buffer, &mem_requirements);
 
 
 	mem_properties :vk.VkPhysicalDeviceMemoryProperties = ---;
-	vk.vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_properties);
+	vk.vkGetPhysicalDeviceMemoryProperties(ctx.physical_device, &mem_properties);
 
 	type_index :u32 = ---;
 	for idx in 0..<mem_properties.memoryTypeCount {
@@ -1330,21 +1055,29 @@ make_buffer :: proc( in_data: rawptr,  size: uint, device: vk.VkDevice, physical
 	alloc_info.memoryTypeIndex = u32(type_index);
 
 	device_memory :vk.VkDeviceMemory = ---;
-	VK_CHECK(vk.vkAllocateMemory(device, &alloc_info, nil, &device_memory));
+	VK_CHECK(vk.vkAllocateMemory(ctx.device, &alloc_info, nil, &device_memory));
 
 	my_buffer.memory = device_memory;
 
-	vk.vkBindBufferMemory(device, buffer, device_memory, 0);
+	vk.vkBindBufferMemory(ctx.device, buffer, device_memory, 0);
 	buffer_sync(&my_buffer);
 	return my_buffer;
 }
 
 buffer_sync :: proc(buffer :^Buffer){
 	data :rawptr = ---;
-
-	vk.vkMapMemory(VK_DEVICE(), buffer.memory, 0, buffer.size, 0, &data);
+	ctx := get_context();
+	vk.vkMapMemory(ctx.device, buffer.memory, 0, buffer.size, 0, &data);
 	mem.copy(data, buffer.data, int(buffer.size));
-	vk.vkUnmapMemory(VK_DEVICE(), buffer.memory);
+	vk.vkUnmapMemory(ctx.device, buffer.memory);
+}
+
+
+Text_Draw_Info :: struct {
+	char_count :int,
+	pipeline       :Pipeline,
+	buffer           :^Buffer,
+
 }
 
 
@@ -1354,13 +1087,17 @@ update_command_buffers :: proc (
 	framebuffers: []vk.VkFramebuffer,
 	mesh_draw_infos: []Mesh_Draw_Info,
 	render_pass: vk.VkRenderPass,
+	text_draw_infos: []Text_Draw_Info,
 ) {
 	for idx in 0..< swapchain.image_count {
 		command_buffer := command_buffers[idx];
 		framebuffer := framebuffers[idx];
 		begin_command_buffer(command_buffer, render_pass, framebuffer, swapchain);
 
+		last_mesh_geom :^Buffer;
+
 		for mesh_draw_info in mesh_draw_infos {
+			last_mesh_geom = mesh_draw_info.mesh.vertex_buffer;
 			// draw each thing . . .
 			vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_draw_info.pipeline.pipeline);
 
@@ -1375,6 +1112,25 @@ update_command_buffers :: proc (
 			vk.vkCmdDrawIndexed(command_buffer, mesh_info.index_count, 1, 0, 0, 0);
 
 		}
+
+		for text_draw_info in text_draw_infos {
+			// draw each thing . . .
+			vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_info.pipeline.pipeline);
+
+			b_offset :vk.VkDeviceSize = 0;
+			// vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &last_mesh_geom.handle, &b_offset);
+			vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &text_draw_info.buffer.handle, &b_offset);
+			// vk.vkCmdBindIndexBuffer(command_buffer, mesh_info.index_buffer.handle, 0, .VK_INDEX_TYPE_UINT32);
+			// vk.vkCmdBindIndexBuffer(command_buffer, nil, 0, .VK_INDEX_TYPE_UINT32);
+
+			// my_descriptor_set := mesh_draw_info.descriptor_set;
+			// vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_draw_info.pipeline.layout, 0, 1, &my_descriptor_set, 0, nil);
+			index_count := text_draw_info.char_count;
+			vk.vkCmdDraw(command_buffer, 6, u32(index_count), 0, 0);
+
+		}
+
+
 		end_command_buffer(command_buffer);
 	}
 }
@@ -1394,7 +1150,7 @@ begin_command_buffer :: proc(
 	render_pass_begin_info.sType = .VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	render_pass_begin_info.renderPass = render_pass;
 	clear_color := vk.VkClearValue {};
-	clear_color.color.float32 = [4]f32 {0., 0., 0., 1.};
+	clear_color.color.float32 = [4]f32 {0., 1., 0., 1.};
 	render_pass_begin_info.clearValueCount = 1;
 	render_pass_begin_info.pClearValues = &clear_color;
 
@@ -1453,3 +1209,407 @@ Pipeline :: struct {
 	pipeline :vk.VkPipeline,
 	layout   :vk.VkPipelineLayout,
 };
+
+Image :: struct {
+	handle :vk.VkImage,
+	width: u32,
+	height: u32,
+	format: vk.VkFormat,
+}
+
+create_image :: proc(width, height :u32, format: vk.VkFormat) -> Image {
+
+	img_info := vk.VkImageCreateInfo {};
+	img_info.sType = .VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;//: VkStructureType,
+	// img_info.pNext = //: rawptr,
+	// img_info.flags = //: VkImageCreateFlags,
+	img_info.imageType = .VK_IMAGE_TYPE_2D;//: VkImageType,
+	img_info.format = format;//: VkFormat,
+	img_info.extent = {width, height, 1};//: VkExtent3D,
+	img_info.mipLevels = 1;//: u32,
+	img_info.arrayLayers = 1;//: u32,
+	img_info.samples = .VK_SAMPLE_COUNT_1_BIT;//: VkSampleCountFlagBits,
+	img_info.tiling = .VK_IMAGE_TILING_OPTIMAL;//: VkImageTiling,
+	img_info.usage = .VK_IMAGE_USAGE_TRANSFER_DST_BIT | .VK_IMAGE_USAGE_SAMPLED_BIT;
+	img_info.sharingMode = .VK_SHARING_MODE_EXCLUSIVE;//: VkSharingMode,
+	// img_info.queueFamilyIndexCount = //: u32,
+	// img_info.pQueueFamilyIndices = //: ^u32,
+	img_info.initialLayout = .VK_IMAGE_LAYOUT_UNDEFINED;//: VkImageLayout,
+
+	image :vk.VkImage = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateImage(ctx.device, &img_info, nil, &image));
+
+
+
+	img_mem_requirements :vk.VkMemoryRequirements = ---;
+	vk.vkGetImageMemoryRequirements(ctx.device, image, &img_mem_requirements);
+
+	alloc_info := vk.VkMemoryAllocateInfo {};
+	alloc_info.sType = .VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	alloc_info.allocationSize = img_mem_requirements.size;
+
+	mem_properties :vk.VkPhysicalDeviceMemoryProperties = ---;
+	vk.vkGetPhysicalDeviceMemoryProperties(ctx.physical_device, &mem_properties);
+
+	properties :vk.VkMemoryPropertyFlags = .VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+	memory_type_idx :u32 = ---;
+	for idx in 0..<mem_properties.memoryTypeCount {
+		if img_mem_requirements.memoryTypeBits & 1<<idx != 0 {
+			memory_type := mem_properties.memoryTypes[idx];
+			if (memory_type.propertyFlags & properties) == properties {
+				memory_type_idx = idx;
+				break;
+			}
+		}
+	}
+
+	alloc_info.memoryTypeIndex = memory_type_idx;
+
+	image_memory :vk.VkDeviceMemory = ---;
+	VK_CHECK(vk.vkAllocateMemory(ctx.device, &alloc_info, nil, &image_memory) );
+	vk.vkBindImageMemory(ctx.device, image, image_memory, 0);
+
+
+	retval := Image {
+		handle=image,
+		width=width,
+		height=height,
+		format=format,
+	};
+
+
+	return retval;
+}
+
+
+begin_single_use_command_buffer :: proc(pool: vk.VkCommandPool) -> vk.VkCommandBuffer {
+
+	cmd_buffer_info := vk.VkCommandBufferAllocateInfo {};
+	cmd_buffer_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	// cmd_buffer_info.pNext = //: rawptr,
+	cmd_buffer_info.commandPool = pool;
+	cmd_buffer_info.level = .VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	cmd_buffer_info.commandBufferCount = 1;
+
+	cmd_buffer :vk.VkCommandBuffer = ---;
+	ctx := get_context();
+	vk.vkAllocateCommandBuffers(ctx.device, &cmd_buffer_info, &cmd_buffer);
+
+	begin_info := vk.VkCommandBufferBeginInfo {};
+	begin_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	begin_info.flags = .VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	vk.vkBeginCommandBuffer(cmd_buffer, &begin_info);
+	return cmd_buffer;
+}
+
+
+copy_buffer :: proc(from, to: vk.VkBuffer, size: vk.VkDeviceSize, pool: vk.VkCommandPool, queue: vk.VkQueue) {
+	img_command_buffer := begin_single_use_command_buffer(pool);
+	copy_region := vk.VkBufferCopy {};
+	copy_region.size = size;
+	vk.vkCmdCopyBuffer(img_command_buffer, from, to, 1, &copy_region);
+
+	end_single_use_command_buffer(img_command_buffer, queue, pool);
+}
+
+
+transition_image_layout :: proc(
+	image: vk.VkImage,
+	format: vk.VkFormat,
+	old_layout: vk.VkImageLayout,
+	new_layout: vk.VkImageLayout,
+	pool: vk.VkCommandPool,
+	queue: vk.VkQueue,
+) {
+	cmd_buffer := begin_single_use_command_buffer(pool);
+
+	barrier := vk.VkImageMemoryBarrier {};
+	barrier.sType = .VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	barrier.oldLayout = old_layout;
+	barrier.newLayout = new_layout;
+	barrier.srcQueueFamilyIndex = 0;
+	barrier.dstQueueFamilyIndex = 0;
+
+	barrier.image = image;
+	barrier.subresourceRange.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.baseMipLevel = 0;
+	barrier.subresourceRange.levelCount = 1;
+	barrier.subresourceRange.baseArrayLayer = 0;
+	barrier.subresourceRange.layerCount = 1;
+
+	source_stage, destination_stage :vk.VkPipelineStageFlags;
+
+	if (old_layout == .VK_IMAGE_LAYOUT_UNDEFINED
+		&& new_layout == .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+	) {
+		barrier.srcAccessMask = auto_cast 0;
+		barrier.dstAccessMask = .VK_ACCESS_TRANSFER_WRITE_BIT;
+		source_stage = .VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+		destination_stage = .VK_PIPELINE_STAGE_TRANSFER_BIT;
+	} else if (old_layout == .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+		&& new_layout == .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	) {
+		barrier.srcAccessMask = .VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = .VK_ACCESS_SHADER_READ_BIT;
+		source_stage = .VK_PIPELINE_STAGE_TRANSFER_BIT;
+		destination_stage = .VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	} else {
+		fmt.println("ERROR");
+	}
+
+	vk.vkCmdPipelineBarrier(cmd_buffer,
+		source_stage, destination_stage,
+		auto_cast 0,
+		0, nil,
+		0, nil,
+		1, &barrier
+	);
+
+	end_single_use_command_buffer(cmd_buffer, queue, pool);
+}
+
+copy_buffer_to_image :: proc(
+	buffer: vk.VkBuffer,
+	image: vk.VkImage,
+	width, height: u32,
+	pool: vk.VkCommandPool,
+	queue: vk.VkQueue,
+) {
+	cmd_buffer := begin_single_use_command_buffer(pool);
+
+	region := vk.VkBufferImageCopy {};
+	region.bufferOffset = 0;
+	region.bufferRowLength = 0;
+	region.bufferImageHeight = 0;
+
+	region.imageSubresource.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+
+	region.imageOffset = {0,0,0};
+	region.imageExtent = {width, height, 1};
+
+	vk.vkCmdCopyBufferToImage(cmd_buffer, buffer, image, .VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+	end_single_use_command_buffer(cmd_buffer, queue, pool);
+}
+
+
+end_single_use_command_buffer :: proc(command_buffer: vk.VkCommandBuffer, queue: vk.VkQueue, pool: vk.VkCommandPool
+) {
+	vk.vkEndCommandBuffer(command_buffer);
+	img_submit_info := vk.VkSubmitInfo {};
+	img_submit_info.sType = .VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	img_submit_info.commandBufferCount = 1;
+	cmd_buf := command_buffer;
+	img_submit_info.pCommandBuffers = &cmd_buf;
+
+	vk.vkQueueSubmit(queue, 1, &img_submit_info, nil);
+	vk.vkQueueWaitIdle(queue);
+	ctx := get_context();
+	vk.vkFreeCommandBuffers(ctx.device, pool, 1, &cmd_buf);
+}
+
+
+create_image_view :: proc(image :vk.VkImage, format: vk.VkFormat) -> vk.VkImageView {
+
+	image_view_info := vk.VkImageViewCreateInfo {};
+	image_view_info.sType = .VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;// VkStructureType,
+	// image_view_info.pNext = // rawptr,
+	// image_view_info.flags = // VkImageViewCreateFlags,
+	image_view_info.image = image;// VkImage,
+	image_view_info.viewType = .VK_IMAGE_VIEW_TYPE_2D;// VkImageViewType,
+	image_view_info.format = format;// VkFormat,
+	// image_view_info.components = {} // VkComponentMapping,
+	// image_view_info.subresourceRange = // VkImageSubresourceRange,
+	image_view_info.subresourceRange.aspectMask = .VK_IMAGE_ASPECT_COLOR_BIT;
+	image_view_info.subresourceRange.baseMipLevel = 0;
+	image_view_info.subresourceRange.levelCount = 1;
+	image_view_info.subresourceRange.baseArrayLayer = 0;
+	image_view_info.subresourceRange.layerCount = 1;
+
+	img_view :vk.VkImageView = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateImageView(ctx.device, &image_view_info, nil, &img_view));
+	return img_view;
+}
+
+
+fill_image_with_buffer :: proc(
+	image:^Image, buffer:^Buffer,
+	pool:vk.VkCommandPool, queue:vk.VkQueue,
+) {
+
+	transition_image_layout(
+		image.handle,
+		image.format,
+		.VK_IMAGE_LAYOUT_UNDEFINED,
+		.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		pool,
+		queue,
+	);
+
+	copy_buffer_to_image(
+		buffer.handle,
+		image.handle,
+		image.width,
+		image.height,
+		pool,
+		queue,
+	);
+
+	transition_image_layout(
+		image.handle,
+		image.format,
+		.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		pool,
+		queue,
+	);
+}
+
+
+create_shader :: proc(path: string) -> vk.VkShaderModule {
+	shader_spv, success := os.read_entire_file(path);
+	assert(success);
+
+	shader_create_info := vk.VkShaderModuleCreateInfo {};
+	shader_create_info.sType = .VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	shader_create_info.codeSize = u64(len(shader_spv));
+	shader_create_info.pCode = (^u32) (&shader_spv[0]);
+
+	shader_module :vk.VkShaderModule = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateShaderModule(ctx.device, &shader_create_info, nil, &shader_module));
+
+	return shader_module;
+}
+
+create_shader_stages :: proc( vertex_shader_path , fragment_shader_path:string ) -> [2]vk.VkPipelineShaderStageCreateInfo {
+
+	vertex_shader_module := create_shader(vertex_shader_path);
+	fragment_shader_module := create_shader(fragment_shader_path);
+
+
+	vertex_stage_info := vk.VkPipelineShaderStageCreateInfo {};
+	vertex_stage_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vertex_stage_info.stage = .VK_SHADER_STAGE_VERTEX_BIT;
+	vertex_stage_info.module = vertex_shader_module;
+	vertex_stage_info.pName = cstring("main");
+
+	fragment_stage_info := vk.VkPipelineShaderStageCreateInfo {};
+	fragment_stage_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	fragment_stage_info.stage = .VK_SHADER_STAGE_FRAGMENT_BIT;
+	fragment_stage_info.module = fragment_shader_module;
+	fragment_stage_info.pName = cstring("main");
+
+	shader_stages := [2]vk.VkPipelineShaderStageCreateInfo{ vertex_stage_info, fragment_stage_info };
+	return shader_stages;
+}
+
+
+create_graphic_pipeline :: proc(
+	pipeline_cache :vk.VkPipelineCache,
+	render_pass :vk.VkRenderPass,
+	vertex_info :^vk.VkPipelineVertexInputStateCreateInfo,
+	pipeline_layout :vk.VkPipelineLayout,
+	shader_stages :[]vk.VkPipelineShaderStageCreateInfo,
+) -> vk.VkPipeline {
+
+
+	assembly_info := vk.VkPipelineInputAssemblyStateCreateInfo {};
+	assembly_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	assembly_info.topology = .VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	assembly_info.primitiveRestartEnable = false;
+
+	viewport := vk.VkViewport {};
+	viewport.x = 0;
+	viewport.y = 0;
+	// viewport.width = f32(surface_extents.width);
+	// viewport.height = f32(surface_extents.height);
+	viewport.minDepth = 0;
+	viewport.maxDepth = 1;
+
+	scissor := vk.VkRect2D {};
+	// scissor.extent = surface_extents;
+
+	viewport_state := vk.VkPipelineViewportStateCreateInfo {};
+	viewport_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewport_state.viewportCount = 1;
+	viewport_state.pViewports = &viewport;
+	viewport_state.scissorCount = 1;
+	viewport_state.pScissors = &scissor;
+
+	rasterization_state := vk.VkPipelineRasterizationStateCreateInfo{};
+	rasterization_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	rasterization_state.depthClampEnable = false;
+	rasterization_state.rasterizerDiscardEnable = false;
+	rasterization_state.polygonMode = .VK_POLYGON_MODE_FILL;
+	rasterization_state.cullMode = .VK_CULL_MODE_BACK_BIT;
+	rasterization_state.frontFace = .VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterization_state.depthBiasEnable = false;
+	rasterization_state.lineWidth = 1;
+
+	multisample_info := vk.VkPipelineMultisampleStateCreateInfo {};
+	multisample_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multisample_info.rasterizationSamples = .VK_SAMPLE_COUNT_1_BIT;
+	multisample_info.sampleShadingEnable = false;
+
+	color_blend_attachment := vk.VkPipelineColorBlendAttachmentState {};
+	color_blend_attachment.blendEnable = false;
+
+	color_blend_attachment.colorWriteMask = (
+		.VK_COLOR_COMPONENT_R_BIT |
+		.VK_COLOR_COMPONENT_G_BIT |
+		.VK_COLOR_COMPONENT_B_BIT |
+		.VK_COLOR_COMPONENT_A_BIT
+	);
+
+	color_blend_info := vk.VkPipelineColorBlendStateCreateInfo {};
+	color_blend_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	color_blend_info.logicOpEnable = false;
+	// VkLogicOp                logicOp;
+	color_blend_info.attachmentCount = 1;
+	color_blend_info.pAttachments = &color_blend_attachment;
+	// float                    blendConstants [4];
+
+	dynamic_states := []vk.VkDynamicState {
+	    .VK_DYNAMIC_STATE_VIEWPORT,
+	    .VK_DYNAMIC_STATE_SCISSOR,
+	};
+
+	dynamic_state_info := vk.VkPipelineDynamicStateCreateInfo {};
+	dynamic_state_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+ 	dynamic_state_info.dynamicStateCount = u32(len(dynamic_states));
+	dynamic_state_info.pDynamicStates = &dynamic_states[0];
+
+
+	// stages_data, stages_num := mem.slice_to_components(shader_stages);
+	graphics_pipeline_info := vk.VkGraphicsPipelineCreateInfo {};
+	graphics_pipeline_info.sType = .VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	graphics_pipeline_info.stageCount = u32(len(shader_stages));
+	graphics_pipeline_info.pStages = &shader_stages[0];
+	graphics_pipeline_info.pVertexInputState = vertex_info;
+	graphics_pipeline_info.pInputAssemblyState = &assembly_info;
+	// const  VkPipelineTessellationStateCreateInfo *  pTessellationState;
+	graphics_pipeline_info.pViewportState = &viewport_state;
+	graphics_pipeline_info.pRasterizationState = &rasterization_state;
+	graphics_pipeline_info.pMultisampleState = &multisample_info;
+	// graphics_pipeline_info.pDepthStencilState = &depth_stencil_state;
+	graphics_pipeline_info.pColorBlendState = &color_blend_info;
+	graphics_pipeline_info.pDynamicState = &dynamic_state_info;
+	graphics_pipeline_info.layout = pipeline_layout;
+	graphics_pipeline_info.renderPass = render_pass;
+	graphics_pipeline_info.subpass = 0;
+	graphics_pipeline_info.basePipelineHandle = nil;
+	graphics_pipeline_info.basePipelineIndex = -1;
+
+	pipeline :vk.VkPipeline = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateGraphicsPipelines(ctx.device, pipeline_cache, 1, &graphics_pipeline_info, nil, &pipeline));
+	return pipeline;
+}
+
+
