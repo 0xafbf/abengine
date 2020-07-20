@@ -513,8 +513,11 @@ main :: proc() {
 	VK_CHECK(vk.vkCreatePipelineCache(device, &pipeline_cache_info, nil, &pipeline_cache));
 
 
+
+	color_blend_info :PipelineBlendState = ---;
+	opaque_blend_info(&color_blend_info);
 	shader_stages := create_shader_stages("content/shader_4.vert.spv", "content/shader_4.frag.spv");
-	pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &vertex_info, pipeline_layout, shader_stages[:]);
+	pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &vertex_info, pipeline_layout, shader_stages[:], &color_blend_info);
 
 
 
@@ -554,9 +557,11 @@ main :: proc() {
 	text_vertex_info.vertexAttributeDescriptionCount = u32(len(text_attrib_descriptions));
 	text_vertex_info.pVertexAttributeDescriptions = &text_attrib_descriptions[0];
 
+	mix_color_blend_info :PipelineBlendState = ---;
 
+	mix_blend_info(&mix_color_blend_info);
 	text_shader_stages := create_shader_stages("content/shader_text.vert.spv", "content/shader_text.frag.spv");
-	text_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &text_vertex_info, pipeline_layout, text_shader_stages[:]);
+	text_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &text_vertex_info, pipeline_layout, text_shader_stages[:], &mix_color_blend_info);
 
 
 
@@ -1509,6 +1514,67 @@ create_shader_stages :: proc( vertex_shader_path , fragment_shader_path:string )
 	return shader_stages;
 }
 
+PipelineBlendState :: struct {
+	color_blend_info :vk.VkPipelineColorBlendStateCreateInfo,
+	color_blend_attachment :vk.VkPipelineColorBlendAttachmentState,
+}
+
+
+opaque_blend_info :: proc(blend_state :^PipelineBlendState) {
+	color_blend_attachment := &blend_state.color_blend_attachment;
+	color_blend_attachment^ = {}; // zero out everything
+	color_blend_attachment.blendEnable = false;
+
+	color_blend_attachment.colorWriteMask = (
+		.VK_COLOR_COMPONENT_R_BIT |
+		.VK_COLOR_COMPONENT_G_BIT |
+		.VK_COLOR_COMPONENT_B_BIT |
+		.VK_COLOR_COMPONENT_A_BIT
+	);
+
+	color_blend_info := &blend_state.color_blend_info;
+	color_blend_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	color_blend_info.logicOpEnable = false;
+	// VkLogicOp                logicOp;
+	color_blend_info.attachmentCount = 1;
+	color_blend_info.pAttachments = color_blend_attachment;
+	// float                    blendConstants [4];
+	return;
+}
+
+
+
+
+mix_blend_info :: proc(blend_state :^PipelineBlendState) {
+
+
+	color_blend_attachment := &blend_state.color_blend_attachment;
+	color_blend_attachment.blendEnable = true;
+	color_blend_attachment.srcColorBlendFactor = .VK_BLEND_FACTOR_SRC_ALPHA;
+	color_blend_attachment.dstColorBlendFactor = .VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	color_blend_attachment.colorBlendOp = .VK_BLEND_OP_ADD;
+	color_blend_attachment.srcAlphaBlendFactor = .VK_BLEND_FACTOR_SRC_ALPHA;
+	color_blend_attachment.dstAlphaBlendFactor = .VK_BLEND_FACTOR_DST_ALPHA;
+	color_blend_attachment.alphaBlendOp = .VK_BLEND_OP_MAX;
+
+
+	color_blend_attachment.colorWriteMask = (
+		.VK_COLOR_COMPONENT_R_BIT |
+		.VK_COLOR_COMPONENT_G_BIT |
+		.VK_COLOR_COMPONENT_B_BIT |
+		.VK_COLOR_COMPONENT_A_BIT
+	);
+
+	color_blend_info := &blend_state.color_blend_info;
+	color_blend_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	color_blend_info.logicOpEnable = false;
+	// VkLogicOp                logicOp;
+	color_blend_info.attachmentCount = 1;
+	color_blend_info.pAttachments = color_blend_attachment;
+	// float                    blendConstants [4];
+	return;
+}
+
 
 create_graphic_pipeline :: proc(
 	pipeline_cache :vk.VkPipelineCache,
@@ -1516,6 +1582,7 @@ create_graphic_pipeline :: proc(
 	vertex_info :^vk.VkPipelineVertexInputStateCreateInfo,
 	pipeline_layout :vk.VkPipelineLayout,
 	shader_stages :[]vk.VkPipelineShaderStageCreateInfo,
+	color_blend_info :^PipelineBlendState,
 ) -> vk.VkPipeline {
 
 
@@ -1557,23 +1624,7 @@ create_graphic_pipeline :: proc(
 	multisample_info.rasterizationSamples = .VK_SAMPLE_COUNT_1_BIT;
 	multisample_info.sampleShadingEnable = false;
 
-	color_blend_attachment := vk.VkPipelineColorBlendAttachmentState {};
-	color_blend_attachment.blendEnable = false;
 
-	color_blend_attachment.colorWriteMask = (
-		.VK_COLOR_COMPONENT_R_BIT |
-		.VK_COLOR_COMPONENT_G_BIT |
-		.VK_COLOR_COMPONENT_B_BIT |
-		.VK_COLOR_COMPONENT_A_BIT
-	);
-
-	color_blend_info := vk.VkPipelineColorBlendStateCreateInfo {};
-	color_blend_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	color_blend_info.logicOpEnable = false;
-	// VkLogicOp                logicOp;
-	color_blend_info.attachmentCount = 1;
-	color_blend_info.pAttachments = &color_blend_attachment;
-	// float                    blendConstants [4];
 
 	dynamic_states := []vk.VkDynamicState {
 	    .VK_DYNAMIC_STATE_VIEWPORT,
@@ -1598,7 +1649,7 @@ create_graphic_pipeline :: proc(
 	graphics_pipeline_info.pRasterizationState = &rasterization_state;
 	graphics_pipeline_info.pMultisampleState = &multisample_info;
 	// graphics_pipeline_info.pDepthStencilState = &depth_stencil_state;
-	graphics_pipeline_info.pColorBlendState = &color_blend_info;
+	graphics_pipeline_info.pColorBlendState = &color_blend_info.color_blend_info;
 	graphics_pipeline_info.pDynamicState = &dynamic_state_info;
 	graphics_pipeline_info.layout = pipeline_layout;
 	graphics_pipeline_info.renderPass = render_pass;
