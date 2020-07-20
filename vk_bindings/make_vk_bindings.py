@@ -7,6 +7,8 @@
 #     uint32: [4]u32,
 # }
 
+# // TODO: fix VkResult enums, that should be negative
+# VK_ERROR_OUT_OF_POOL_MEMORY = -1000069000,
 
 
 import xml.etree.ElementTree as ET
@@ -135,7 +137,7 @@ def parse_feature(node, enums_dict):
                     if enum_ext_number == None:
                         enum_ext_number = ext_number
                     ext_num = int(enum_ext_number) - 1
-                    enum_value = 1000000000 + (ext_num * 1000) + int(offset)
+                    enum_value = 100000000 + (ext_num * 1000) + int(offset)
                     append_or_create(enums_dict, base, (name, enum_value))
 
 

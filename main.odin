@@ -21,12 +21,16 @@ debugCallback :: proc (
 	pCallbackData: ^vk.VkDebugUtilsMessengerCallbackDataEXT,
 	pUserData: rawptr,
 ) -> vk.VkBool32 {
-	fmt.println(pCallbackData.pMessage);
+	fmt.println(pCallbackData.pMessage, "\n");
 	return false;
 };
 
 
 VK_CHECK :: proc(res: vk.VkResult) {
+	// TODO: make this with conditional compilation?
+	if (res != .VK_SUCCESS) {
+		fmt.println("failed with error code:", res, int(res));
+	}
 	assert(res == .VK_SUCCESS);
 }
 
@@ -36,7 +40,6 @@ main :: proc() {
 
 	glfw.init();
 	glfw.window_hint(.CLIENT_API, int(glfw.NO_API));
-
 
 	all_monitors := glfw.get_monitors();
 	primary_monitor := glfw.get_primary_monitor();
@@ -420,89 +423,11 @@ main :: proc() {
 	vertex_info.vertexAttributeDescriptionCount = u32(len(attrib_descriptions));
 	vertex_info.pVertexAttributeDescriptions = &attrib_descriptions[0];
 
+	descriptor_set_layout := create_mvp_descriptor_set_layout();
+	pipeline_layout := create_pipeline_layout({descriptor_set_layout}, {});
 
+	render_pass := create_render_pass(desired_format.format);
 
-	layout_binding := vk.VkDescriptorSetLayoutBinding {};
-	layout_binding.binding = 0;
-	layout_binding.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	layout_binding.descriptorCount = 1;//: u32,
-	layout_binding.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
-	layout_binding.pImmutableSamplers = nil;//: ^VkSampler,
-
-	layout_binding_img := vk.VkDescriptorSetLayoutBinding {};
-	layout_binding_img.binding = 1;
-	layout_binding_img.descriptorType = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	layout_binding_img.descriptorCount = 1;//: u32,
-	layout_binding_img.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
-	layout_binding_img.pImmutableSamplers = nil;//: ^VkSampler,
-
-	layout_bindings := []vk.VkDescriptorSetLayoutBinding {
-		layout_binding,
-		layout_binding_img,
-	};
-
-
-	layout_create_info := vk.VkDescriptorSetLayoutCreateInfo {};
-	layout_create_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	// layout_create_info.pNext = //: rawptr,
-	// layout_create_info.flags = //: VkDescriptorSetLayoutCreateFlags,
-	layout_create_info.bindingCount = u32(len(layout_bindings));
-	layout_create_info.pBindings = &layout_bindings[0];//: ^VkDescriptorSetLayoutBinding,
-
-	descriptor_set_layout :vk.VkDescriptorSetLayout = ---;
-	VK_CHECK(vk.vkCreateDescriptorSetLayout(device, &layout_create_info, nil, &descriptor_set_layout));
-
-
-	pipeline_layout_info := vk.VkPipelineLayoutCreateInfo {};
-	pipeline_layout_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipeline_layout_info.setLayoutCount = 1;
-	pipeline_layout_info.pSetLayouts = &descriptor_set_layout;
-	pipeline_layout_info.pushConstantRangeCount = 0;
-	pipeline_layout_info.pPushConstantRanges = nil;
-
-	pipeline_layout :vk.VkPipelineLayout = ---;
-	VK_CHECK(vk.vkCreatePipelineLayout(device, &pipeline_layout_info, nil, &pipeline_layout));
-
-	attachment_description := vk.VkAttachmentDescription {};
-	attachment_description.format = desired_format.format;
-	attachment_description.samples = .VK_SAMPLE_COUNT_1_BIT;
-	attachment_description.loadOp = .VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachment_description.storeOp = .VK_ATTACHMENT_STORE_OP_STORE;
-	attachment_description.stencilLoadOp = .VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	attachment_description.stencilStoreOp = .VK_ATTACHMENT_STORE_OP_DONT_CARE;
-	attachment_description.initialLayout = .VK_IMAGE_LAYOUT_UNDEFINED;
-	attachment_description.finalLayout = .VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-
-	attachment_ref := vk.VkAttachmentReference {};
-	attachment_ref.attachment = 0;
-	attachment_ref.layout = .VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-	subpass := vk.VkSubpassDescription {};
-	subpass.pipelineBindPoint = .VK_PIPELINE_BIND_POINT_GRAPHICS;
-	subpass.colorAttachmentCount = 1;
-	subpass.pColorAttachments = &attachment_ref;
-
-	subpass_dependency := vk.VkSubpassDependency {};
-	subpass_dependency.srcSubpass = u32(vk.VK_SUBPASS_EXTERNAL);
-	subpass_dependency.dstSubpass = 0;
-	subpass_dependency.srcStageMask = .VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpass_dependency.dstStageMask = .VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	subpass_dependency.srcAccessMask = {};
-	subpass_dependency.dstAccessMask = .VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-	// subpass_dependency.dependencyFlags;
-
-	render_pass_info := vk.VkRenderPassCreateInfo {};
-	render_pass_info.sType = .VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-	render_pass_info.attachmentCount = 1;
-	render_pass_info.pAttachments = &attachment_description;
-	render_pass_info.subpassCount = 1;
-	render_pass_info.pSubpasses = &subpass;
-	render_pass_info.dependencyCount = 1;
-	render_pass_info.pDependencies = &subpass_dependency;
-
-	render_pass :vk.VkRenderPass = ---;
-	VK_CHECK(vk.vkCreateRenderPass(device, &render_pass_info, nil, &render_pass));
 
 	pipeline_cache_info := vk.VkPipelineCacheCreateInfo {};
 	pipeline_cache_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
@@ -558,10 +483,15 @@ main :: proc() {
 	text_vertex_info.pVertexAttributeDescriptions = &text_attrib_descriptions[0];
 
 	mix_color_blend_info :PipelineBlendState = ---;
-
 	mix_blend_info(&mix_color_blend_info);
+
 	text_shader_stages := create_shader_stages("content/shader_text.vert.spv", "content/shader_text.frag.spv");
-	text_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &text_vertex_info, pipeline_layout, text_shader_stages[:], &mix_color_blend_info);
+
+
+	viewport_descriptor_layout := create_viewport_descriptor_set_layout(binding=0);
+	font_descriptor_layout := create_font_descriptor_set_layout(binding=0);
+	text_pipeline_layout: = create_pipeline_layout({viewport_descriptor_layout, font_descriptor_layout}, {});
+	text_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &text_vertex_info, text_pipeline_layout, text_shader_stages[:], &mix_color_blend_info);
 
 
 
@@ -603,7 +533,7 @@ main :: proc() {
 	descriptor_pool_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	// descriptor_pool_info.pNext = //: rawptr,
 	// descriptor_pool_info.flags = //: VkDescriptorPoolCreateFlags,
-	descriptor_pool_info.maxSets = swapchain_image_count;
+	descriptor_pool_info.maxSets = 100;
 	descriptor_pool_info.poolSizeCount = u32(len(descriptor_pool_sizes));
 	descriptor_pool_info.pPoolSizes = &descriptor_pool_sizes[0];
 
@@ -611,7 +541,10 @@ main :: proc() {
 	VK_CHECK(vk.vkCreateDescriptorPool(device, &descriptor_pool_info, nil, &descriptor_pool));
 
 
-	descriptor_sets := get_descriptor_sets(descriptor_pool, descriptor_set_layout, 2);
+	descriptor_sets := alloc_descriptor_sets(descriptor_pool, descriptor_set_layout, 2);
+
+	text_viewport_descriptor_set := alloc_descriptor_sets(descriptor_pool, viewport_descriptor_layout, 1);
+	text_font_descriptor_set := alloc_descriptor_sets(descriptor_pool, font_descriptor_layout, 1);
 
 
 
@@ -635,7 +568,7 @@ main :: proc() {
 	ubo.view = linalg.matrix4_from_trs(t, r222, s);
 	ubo2.view = ubo.view;
 
-	aspect := f32(WIDTH) / f32(HEIGHT);
+	aspect := f32(surface_extents.width) / f32(surface_extents.height);
 	ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
 	ubo2.proj = ubo.proj;
 	// ubo2.proj = linalg.matrix4_scale({1/aspect, -1, 1});
@@ -646,6 +579,22 @@ main :: proc() {
 
 	update_binding(descriptor_sets[0], 0, &uniform_buffer);
 	update_binding(descriptor_sets[1], 0, &uniform_buffer2);
+
+
+	Viewport_Data :: struct {
+		left: f32,
+		right: f32,
+		top: f32,
+		bottom: f32,
+	};
+	viewport_data := Viewport_Data {};
+	viewport_data.right = f32(surface_extents.width);
+	viewport_data.bottom = f32(surface_extents.height);
+	viewport_buffer := make_buffer(&viewport_data, size_of(viewport_data), .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+
+
+
+	update_binding(text_viewport_descriptor_set[0], 0, &viewport_buffer);
 
 
 	img_x, img_y, img_channels : i32;
@@ -674,7 +623,7 @@ main :: proc() {
 
 	font_buffer := make_buffer(&font_pixels[0], len(font_pixels), .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 
-	texto := "0xAFBF";
+	texto := "texto mapeado de la textura de abajo";
 
 
 	text_num_chars := len(texto);
@@ -687,18 +636,17 @@ main :: proc() {
 		char_id := int(texto[idx]) - first_char;
 
 		xpos, ypos, char_quad = stbtt.get_baked_quad(char_data, int(font_tex_size.x), int(font_tex_size.y), char_id, true);
-		fmt.println("char quad:", char_quad);
 		text_data[idx] = char_quad;
+		fmt.println(char_quad);
 	}
 
 	text_draw_info := Text_Draw_Info {};
 	text_draw_info.char_count = text_num_chars;
 
-
 	text_buffer := make_buffer(&text_data[0], size_of(stbtt.Aligned_Quad) * text_num_chars, .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 	text_draw_info.buffer = &text_buffer;
 
-	text_draw_info.pipeline = {text_pipeline, pipeline_layout};
+	text_draw_info.pipeline = {text_pipeline, text_pipeline_layout};
 
 
 	my_image := create_image(u32 (img_x), u32 (img_y), .VK_FORMAT_R8G8B8A8_SRGB);
@@ -744,8 +692,14 @@ main :: proc() {
 	sampler :vk.VkSampler = ---;
 	VK_CHECK(vk.vkCreateSampler(ctx.device, &sampler_info, nil, &sampler));
 
-	update_binding_img(descriptor_sets[0], 1, sampler, my_image_view, .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-	update_binding_img(descriptor_sets[1], 1, sampler, my_font_image_view, .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	use :vk.VkImageLayout = .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	update_binding(descriptor_sets[0], 1, sampler, my_image_view, use);
+	update_binding(descriptor_sets[1], 1, sampler, my_font_image_view, use);
+
+	update_binding(text_font_descriptor_set[0], 0, sampler, my_font_image_view, use);
+
+	text_draw_info.font_descriptor = text_font_descriptor_set[0];
+	text_draw_info.viewport_descriptor = text_viewport_descriptor_set[0];
 
 	// VkCommandPoolCreateInfo present_command_pool_info {};
 	// present_command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -907,6 +861,16 @@ main :: proc() {
 				VK_CHECK(vk.vkCreateFramebuffer(device, &framebuffer_info, nil, &framebuffers[idx]));
 			}
 
+			viewport_data.right = f32(surface_extents.width);
+			viewport_data.bottom = f32(surface_extents.height);
+			buffer_sync(&viewport_buffer);
+
+			aspect := f32(surface_extents.width) / f32(surface_extents.height);
+			ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
+			ubo2.proj = ubo.proj;
+			buffer_sync(&uniform_buffer);
+			buffer_sync(&uniform_buffer2);
+
 			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_to_draw);
 
 		}
@@ -918,7 +882,7 @@ main :: proc() {
 
 
 
-get_descriptor_sets :: proc(
+alloc_descriptor_sets :: proc(
 	descriptor_pool :vk.VkDescriptorPool,
 	descriptor_set_layout: vk.VkDescriptorSetLayout,
 	count :u32,
@@ -946,7 +910,11 @@ get_descriptor_sets :: proc(
 	return descriptor_sets;
 }
 
-update_binding :: proc (
+update_binding :: proc {
+	update_binding_buffer, update_binding_img
+};
+
+update_binding_buffer :: proc (
 	descriptor_set :vk.VkDescriptorSet,
 	binding        :u32,
 	buffer         :^Buffer,
@@ -1043,15 +1011,17 @@ make_buffer :: proc( in_data: rawptr,  size: int, usage: vk.VkBufferUsageFlags) 
 	vk.vkGetPhysicalDeviceMemoryProperties(ctx.physical_device, &mem_properties);
 
 	type_index :u32 = ---;
+	found := false;
 	for idx in 0..<mem_properties.memoryTypeCount {
 		mem_type := mem_properties.memoryTypes[idx];
 		mask := (vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vk.VkMemoryPropertyFlagBits.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 		if (mem_type.propertyFlags & mask) == mask{
 			type_index = idx;
+			found = true;
 			break;
 		}
 	}
-	assert(type_index != ---);
+	assert(found);
 
 
 	alloc_info := vk.VkMemoryAllocateInfo {};
@@ -1082,7 +1052,8 @@ Text_Draw_Info :: struct {
 	char_count :int,
 	pipeline       :Pipeline,
 	buffer           :^Buffer,
-
+	font_descriptor :vk.VkDescriptorSet,
+	viewport_descriptor :vk.VkDescriptorSet,
 }
 
 
@@ -1128,8 +1099,12 @@ update_command_buffers :: proc (
 			// vk.vkCmdBindIndexBuffer(command_buffer, mesh_info.index_buffer.handle, 0, .VK_INDEX_TYPE_UINT32);
 			// vk.vkCmdBindIndexBuffer(command_buffer, nil, 0, .VK_INDEX_TYPE_UINT32);
 
-			// my_descriptor_set := mesh_draw_info.descriptor_set;
-			// vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_draw_info.pipeline.layout, 0, 1, &my_descriptor_set, 0, nil);
+			descriptors := []vk.VkDescriptorSet {
+				text_draw_info.viewport_descriptor,
+				text_draw_info.font_descriptor,
+			};
+
+			vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_info.pipeline.layout, 0, u32(len(descriptors)), raw_data(descriptors), 0, nil);
 			index_count := text_draw_info.char_count;
 			vk.vkCmdDraw(command_buffer, 6, u32(index_count), 0, 0);
 
@@ -1155,7 +1130,7 @@ begin_command_buffer :: proc(
 	render_pass_begin_info.sType = .VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
 	render_pass_begin_info.renderPass = render_pass;
 	clear_color := vk.VkClearValue {};
-	clear_color.color.float32 = [4]f32 {0., 1., 0., 1.};
+	clear_color.color.float32 = [4]f32 {0., 0., 0.2, 1.};
 	render_pass_begin_info.clearValueCount = 1;
 	render_pass_begin_info.pClearValues = &clear_color;
 
@@ -1543,8 +1518,6 @@ opaque_blend_info :: proc(blend_state :^PipelineBlendState) {
 }
 
 
-
-
 mix_blend_info :: proc(blend_state :^PipelineBlendState) {
 
 
@@ -1585,29 +1558,10 @@ create_graphic_pipeline :: proc(
 	color_blend_info :^PipelineBlendState,
 ) -> vk.VkPipeline {
 
-
 	assembly_info := vk.VkPipelineInputAssemblyStateCreateInfo {};
 	assembly_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 	assembly_info.topology = .VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	assembly_info.primitiveRestartEnable = false;
-
-	viewport := vk.VkViewport {};
-	viewport.x = 0;
-	viewport.y = 0;
-	// viewport.width = f32(surface_extents.width);
-	// viewport.height = f32(surface_extents.height);
-	viewport.minDepth = 0;
-	viewport.maxDepth = 1;
-
-	scissor := vk.VkRect2D {};
-	// scissor.extent = surface_extents;
-
-	viewport_state := vk.VkPipelineViewportStateCreateInfo {};
-	viewport_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-	viewport_state.viewportCount = 1;
-	viewport_state.pViewports = &viewport;
-	viewport_state.scissorCount = 1;
-	viewport_state.pScissors = &scissor;
 
 	rasterization_state := vk.VkPipelineRasterizationStateCreateInfo{};
 	rasterization_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -1619,12 +1573,19 @@ create_graphic_pipeline :: proc(
 	rasterization_state.depthBiasEnable = false;
 	rasterization_state.lineWidth = 1;
 
+
+	viewport_state := vk.VkPipelineViewportStateCreateInfo {};
+	viewport_state.sType = .VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewport_state.viewportCount = 1;
+	// viewport_state.pViewports = &viewport; // nil as it is dynamic state
+	viewport_state.scissorCount = 1;
+	// viewport_state.pScissors = &scissor;
+
+
 	multisample_info := vk.VkPipelineMultisampleStateCreateInfo {};
 	multisample_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 	multisample_info.rasterizationSamples = .VK_SAMPLE_COUNT_1_BIT;
 	multisample_info.sampleShadingEnable = false;
-
-
 
 	dynamic_states := []vk.VkDynamicState {
 	    .VK_DYNAMIC_STATE_VIEWPORT,
@@ -1636,8 +1597,6 @@ create_graphic_pipeline :: proc(
  	dynamic_state_info.dynamicStateCount = u32(len(dynamic_states));
 	dynamic_state_info.pDynamicStates = &dynamic_states[0];
 
-
-	// stages_data, stages_num := mem.slice_to_components(shader_stages);
 	graphics_pipeline_info := vk.VkGraphicsPipelineCreateInfo {};
 	graphics_pipeline_info.sType = .VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 	graphics_pipeline_info.stageCount = u32(len(shader_stages));
@@ -1664,3 +1623,160 @@ create_graphic_pipeline :: proc(
 }
 
 
+
+create_viewport_descriptor_set_layout :: proc(binding: u32) -> vk.VkDescriptorSetLayout {
+
+	layout_binding := vk.VkDescriptorSetLayoutBinding {};
+	layout_binding.binding = binding;
+	layout_binding.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	layout_binding.descriptorCount = 1;//: u32,
+	layout_binding.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
+	layout_binding.pImmutableSamplers = nil;//: ^VkSampler,
+
+	layout_bindings := []vk.VkDescriptorSetLayoutBinding {
+		layout_binding,
+	};
+
+	layout_create_info := vk.VkDescriptorSetLayoutCreateInfo {};
+	layout_create_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	// layout_create_info.pNext = //: rawptr,
+	// layout_create_info.flags = //: VkDescriptorSetLayoutCreateFlags,
+	layout_create_info.bindingCount = u32(len(layout_bindings));
+	layout_create_info.pBindings = raw_data(layout_bindings);//: ^VkDescriptorSetLayoutBinding,
+
+	descriptor_set_layout :vk.VkDescriptorSetLayout = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateDescriptorSetLayout(ctx.device, &layout_create_info, nil, &descriptor_set_layout));
+	return descriptor_set_layout;
+}
+
+
+create_font_descriptor_set_layout :: proc(binding: u32) -> vk.VkDescriptorSetLayout {
+
+	layout_binding := vk.VkDescriptorSetLayoutBinding {};
+	layout_binding.binding = binding;
+	layout_binding.descriptorType = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	layout_binding.descriptorCount = 1;//: u32,
+	layout_binding.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
+	layout_binding.pImmutableSamplers = nil;//: ^VkSampler,
+
+	layout_bindings := []vk.VkDescriptorSetLayoutBinding {
+		layout_binding,
+	};
+
+	layout_create_info := vk.VkDescriptorSetLayoutCreateInfo {};
+	layout_create_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	// layout_create_info.pNext = //: rawptr,
+	// layout_create_info.flags = //: VkDescriptorSetLayoutCreateFlags,
+	layout_create_info.bindingCount = u32(len(layout_bindings));
+	layout_create_info.pBindings = raw_data(layout_bindings);//: ^VkDescriptorSetLayoutBinding,
+
+	descriptor_set_layout :vk.VkDescriptorSetLayout = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateDescriptorSetLayout(ctx.device, &layout_create_info, nil, &descriptor_set_layout));
+	return descriptor_set_layout;
+}
+
+
+create_mvp_descriptor_set_layout :: proc() -> vk.VkDescriptorSetLayout {
+
+	layout_binding := vk.VkDescriptorSetLayoutBinding {};
+	layout_binding.binding = 0;
+	layout_binding.descriptorType = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	layout_binding.descriptorCount = 1;//: u32,
+	layout_binding.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
+	layout_binding.pImmutableSamplers = nil;//: ^VkSampler,
+
+	layout_binding_img := vk.VkDescriptorSetLayoutBinding {};
+	layout_binding_img.binding = 1;
+	layout_binding_img.descriptorType = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	layout_binding_img.descriptorCount = 1;//: u32,
+	layout_binding_img.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
+	layout_binding_img.pImmutableSamplers = nil;//: ^VkSampler,
+
+	layout_bindings := []vk.VkDescriptorSetLayoutBinding {
+		layout_binding,
+		layout_binding_img,
+	};
+
+
+	layout_create_info := vk.VkDescriptorSetLayoutCreateInfo {};
+	layout_create_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	// layout_create_info.pNext = //: rawptr,
+	// layout_create_info.flags = //: VkDescriptorSetLayoutCreateFlags,
+	layout_create_info.bindingCount = u32(len(layout_bindings));
+	layout_create_info.pBindings = raw_data(layout_bindings);//: ^VkDescriptorSetLayoutBinding,
+
+	descriptor_set_layout :vk.VkDescriptorSetLayout = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateDescriptorSetLayout(ctx.device, &layout_create_info, nil, &descriptor_set_layout));
+	return descriptor_set_layout;
+}
+
+
+create_pipeline_layout :: proc(
+	descriptor_set_layouts: []vk.VkDescriptorSetLayout,
+	push_constant_ranges: []vk.VkPushConstantRange,
+) -> vk.VkPipelineLayout {
+
+	pipeline_layout_info := vk.VkPipelineLayoutCreateInfo {};
+	pipeline_layout_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	pipeline_layout_info.setLayoutCount = u32(len(descriptor_set_layouts));
+	pipeline_layout_info.pSetLayouts = raw_data(descriptor_set_layouts);
+	pipeline_layout_info.pushConstantRangeCount = u32(len(push_constant_ranges));
+	pipeline_layout_info.pPushConstantRanges = raw_data(push_constant_ranges);
+
+	pipeline_layout :vk.VkPipelineLayout = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreatePipelineLayout(ctx.device, &pipeline_layout_info, nil, &pipeline_layout));
+	return pipeline_layout;
+}
+
+
+
+create_render_pass :: proc (
+	format: vk.VkFormat,
+) -> vk.VkRenderPass {
+	attachment_description := vk.VkAttachmentDescription {};
+	attachment_description.format = format;
+	attachment_description.samples = .VK_SAMPLE_COUNT_1_BIT;
+	attachment_description.loadOp = .VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachment_description.storeOp = .VK_ATTACHMENT_STORE_OP_STORE;
+	attachment_description.stencilLoadOp = .VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachment_description.stencilStoreOp = .VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachment_description.initialLayout = .VK_IMAGE_LAYOUT_UNDEFINED;
+	attachment_description.finalLayout = .VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+
+	attachment_ref := vk.VkAttachmentReference {};
+	attachment_ref.attachment = 0;
+	attachment_ref.layout = .VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	subpass := vk.VkSubpassDescription {};
+	subpass.pipelineBindPoint = .VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpass.colorAttachmentCount = 1;
+	subpass.pColorAttachments = &attachment_ref;
+
+	subpass_dependency := vk.VkSubpassDependency {};
+	subpass_dependency.srcSubpass = u32(vk.VK_SUBPASS_EXTERNAL);
+	subpass_dependency.dstSubpass = 0;
+	subpass_dependency.srcStageMask = .VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpass_dependency.dstStageMask = .VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	subpass_dependency.srcAccessMask = {};
+	subpass_dependency.dstAccessMask = .VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	// subpass_dependency.dependencyFlags;
+
+	render_pass_info := vk.VkRenderPassCreateInfo {};
+	render_pass_info.sType = .VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	render_pass_info.attachmentCount = 1;
+	render_pass_info.pAttachments = &attachment_description;
+	render_pass_info.subpassCount = 1;
+	render_pass_info.pSubpasses = &subpass;
+	render_pass_info.dependencyCount = 1;
+	render_pass_info.pDependencies = &subpass_dependency;
+
+	render_pass :vk.VkRenderPass = ---;
+	ctx := get_context();
+	VK_CHECK(vk.vkCreateRenderPass(ctx.device, &render_pass_info, nil, &render_pass));
+	return render_pass;
+}
