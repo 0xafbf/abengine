@@ -2,7 +2,6 @@
 #extension GL_ARB_separate_shader_objects : enable
 
 layout(location = 0) in vec4 x0;
-
 layout(location = 1) in vec4 x1;
 
 layout(binding=0) uniform ViewportData {
@@ -31,15 +30,7 @@ void main() {
 	vec4 dx = mix(x0, x1, position.x);
 	vec4 dy = mix(x0, x1, position.y);
 
-	vec2 pos = position;
-    pos.x += gl_InstanceIndex;
-    pos *= 20;
-
-    pos = vec2(gl_InstanceIndex * 30,100);
-    pos.x += mix(x0.x, x1.x, position.x);
-    pos.y += mix(x0.y, x1.y, position.y);
-
-
+	vec2 pos = vec2(dx.x, dy.y);
 
     pos.x = -1 + 2 * pos.x /(right-left);
     pos.y = -1 + 2 * pos.y /(bottom-top);

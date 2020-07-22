@@ -608,14 +608,14 @@ main :: proc() {
 	char_file, ss := os.read_entire_file("odin-stb/consola.ttf");
 	assert(ss);
 
-	font_tex_size := [2]u32 {512, 512};
+	font_tex_size := [2]int {512, 512};
 	font_pixels := make([]u8, font_tex_size.x * font_tex_size.y);
 	first_char := 32; //space
 	num_chars := 95; // from 32 to 126
 
 	char_data, result := stbtt.bake_font_bitmap(
 		char_file, 0, // data, offset
-		64, //pixel_height
+		24, //pixel_height
 		font_pixels, //storage
 		int(font_tex_size.x), int(font_tex_size.y),
 		first_char, num_chars,
@@ -623,35 +623,69 @@ main :: proc() {
 
 	font_buffer := make_buffer(&font_pixels[0], len(font_pixels), .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 
-	texto := "texto mapeado de la textura de abajo";
 
+	text_data := new(Char_Draw_Data);
+	text_data.char_count = 0;
+	text_data.substring_count = 0;
+	text_data.font_size = font_tex_size;
+	text_data.font_first_idx = first_char;
+	text_data.char_data = char_data;
 
-	text_num_chars := len(texto);
-	text_data := make([]stbtt.Aligned_Quad, text_num_chars);
+	draw_string :: proc(text_data: ^Char_Draw_Data, in_string: string, in_pos: [2]f32 ) {
 
-	xpos :f32= 0;
-	ypos :f32= 0;
-	char_quad: stbtt.Aligned_Quad = ---;
-	for idx in 0..<text_num_chars {
-		char_id := int(texto[idx]) - first_char;
+		pos := in_pos;
 
-		xpos, ypos, char_quad = stbtt.get_baked_quad(char_data, int(font_tex_size.x), int(font_tex_size.y), char_id, true);
-		text_data[idx] = char_quad;
-		fmt.println(char_quad);
+		substring := &text_data.substrings[text_data.substring_count];
+		text_data.substring_count += 1;
+
+		substring.string_start = text_data.char_count;
+		substring.string_size = u32(len(in_string));
+
+		char_data := text_data.char_data;
+
+		text_num_chars := len(in_string);
+		for idx in 0..<text_num_chars {
+			array_index := text_data.char_count;
+			text_data.char_count += 1;
+
+			char_id := int(in_string[idx]) - text_data.font_first_idx;
+			char_quad := &text_data.char_quads[array_index];
+			// xpos, ypos, char_quad = stbtt.get_baked_quad(char_data, int(font_tex_size.x), int(font_tex_size.y), char_id, true);
+			stbtt.stbtt_GetBakedQuad(&char_data[0], i32(text_data.font_size.x), i32(text_data.font_size.y), i32(char_id), &pos.x, &pos.y, char_quad, 1);
+		}
+
+		assert(text_data.char_count < len(text_data.char_quads));
 	}
 
-	text_draw_info := Text_Draw_Info {};
-	text_draw_info.char_count = text_num_chars;
+	mystring := strings.make_builder_len(100);
 
-	text_buffer := make_buffer(&text_data[0], size_of(stbtt.Aligned_Quad) * text_num_chars, .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-	text_draw_info.buffer = &text_buffer;
+	for idx in 0..<100 {
+		pos: [2]f32 = {f32(idx%10 * 200), f32(idx/10) * 100};
 
-	text_draw_info.pipeline = {text_pipeline, text_pipeline_layout};
+		draw_string(text_data, "#####", {pos.x, pos.y+25});
+
+		strings.reset_builder(&mystring);
+		res_string := fmt.sbprintln(&mystring, pos.x, pos.y);
+		draw_string(text_data, res_string, {pos.x, pos.y+50});
+
+		strings.reset_builder(&mystring);
+		str2 := fmt.sbprintln(&mystring, "row", idx/10);
+		draw_string(text_data, str2, {pos.x, pos.y+75});
+
+		strings.reset_builder(&mystring);
+		str3 := fmt.sbprintln(&mystring, "col", idx%10);
+		draw_string(text_data, str3, {pos.x, pos.y+100});
+	}
+
+	text_buffer := make_buffer(&text_data.char_quads[0], size_of(stbtt.Aligned_Quad) *len(text_data.char_quads), .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+	text_data.buffer = &text_buffer;
+
+	text_data.pipeline = {text_pipeline, text_pipeline_layout};
 
 
 	my_image := create_image(u32 (img_x), u32 (img_y), .VK_FORMAT_R8G8B8A8_SRGB);
 	image := my_image.handle;
-	my_font_image := create_image(font_tex_size.x, font_tex_size.y, .VK_FORMAT_R8_UNORM);
+	my_font_image := create_image(u32(font_tex_size.x), u32(font_tex_size.y), .VK_FORMAT_R8_UNORM);
 
 	graphics_command_pool_info := vk.VkCommandPoolCreateInfo {};
 	graphics_command_pool_info.sType = .VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -698,8 +732,8 @@ main :: proc() {
 
 	update_binding(text_font_descriptor_set[0], 0, sampler, my_font_image_view, use);
 
-	text_draw_info.font_descriptor = text_font_descriptor_set[0];
-	text_draw_info.viewport_descriptor = text_viewport_descriptor_set[0];
+	text_data.font_descriptor = text_font_descriptor_set[0];
+	text_data.viewport_descriptor = text_viewport_descriptor_set[0];
 
 	// VkCommandPoolCreateInfo present_command_pool_info {};
 	// present_command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -741,11 +775,7 @@ main :: proc() {
 		my_mesh_draw2,
 	};
 
-	text_to_draw := []Text_Draw_Info {
-		text_draw_info,
-	};
-
-	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_to_draw);
+	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_data);
 
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
@@ -871,7 +901,7 @@ main :: proc() {
 			buffer_sync(&uniform_buffer);
 			buffer_sync(&uniform_buffer2);
 
-			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_to_draw);
+			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_data);
 
 		}
 
@@ -1048,22 +1078,13 @@ buffer_sync :: proc(buffer :^Buffer){
 }
 
 
-Text_Draw_Info :: struct {
-	char_count :int,
-	pipeline       :Pipeline,
-	buffer           :^Buffer,
-	font_descriptor :vk.VkDescriptorSet,
-	viewport_descriptor :vk.VkDescriptorSet,
-}
-
-
 update_command_buffers :: proc (
 	swapchain: ^Swapchain,
 	command_buffers: []vk.VkCommandBuffer,
 	framebuffers: []vk.VkFramebuffer,
 	mesh_draw_infos: []Mesh_Draw_Info,
 	render_pass: vk.VkRenderPass,
-	text_draw_infos: []Text_Draw_Info,
+	text_draw_infos: ^Char_Draw_Data,
 ) {
 	for idx in 0..< swapchain.image_count {
 		command_buffer := command_buffers[idx];
@@ -1089,25 +1110,23 @@ update_command_buffers :: proc (
 
 		}
 
-		for text_draw_info in text_draw_infos {
+
+		buffer_sync(text_draw_infos.buffer);
+		vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_infos.pipeline.pipeline);
+
+		b_offset: vk.VkDeviceSize = 0;
+		vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &text_draw_infos.buffer.handle, &b_offset);
+
+		descriptors := []vk.VkDescriptorSet {
+			text_draw_infos.viewport_descriptor,
+			text_draw_infos.font_descriptor,
+		};
+		vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_infos.pipeline.layout, 0, u32(len(descriptors)), raw_data(descriptors), 0, nil);
+
+		for substring_idx in 0..<text_draw_infos.substring_count {
 			// draw each thing . . .
-			vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_info.pipeline.pipeline);
-
-			b_offset :vk.VkDeviceSize = 0;
-			// vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &last_mesh_geom.handle, &b_offset);
-			vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &text_draw_info.buffer.handle, &b_offset);
-			// vk.vkCmdBindIndexBuffer(command_buffer, mesh_info.index_buffer.handle, 0, .VK_INDEX_TYPE_UINT32);
-			// vk.vkCmdBindIndexBuffer(command_buffer, nil, 0, .VK_INDEX_TYPE_UINT32);
-
-			descriptors := []vk.VkDescriptorSet {
-				text_draw_info.viewport_descriptor,
-				text_draw_info.font_descriptor,
-			};
-
-			vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_info.pipeline.layout, 0, u32(len(descriptors)), raw_data(descriptors), 0, nil);
-			index_count := text_draw_info.char_count;
-			vk.vkCmdDraw(command_buffer, 6, u32(index_count), 0, 0);
-
+			substr := &text_draw_infos.substrings[substring_idx];
+			vk.vkCmdDraw(command_buffer, 6, u32(substr.string_size), 0, substr.string_start);
 		}
 
 
@@ -1780,3 +1799,28 @@ create_render_pass :: proc (
 	VK_CHECK(vk.vkCreateRenderPass(ctx.device, &render_pass_info, nil, &render_pass));
 	return render_pass;
 }
+
+
+Char_Substring :: struct {
+	string_start: u32,
+	string_size: u32,
+	// start: linalg.Vector2,
+};
+
+Char_Draw_Data_GEN :: struct(max_char_count: u32, max_string_count: u32) {
+	char_quads: [max_char_count]stbtt.Aligned_Quad,
+	substrings: [max_string_count] Char_Substring,
+	char_count: u32,
+	substring_count: uint,
+	buffer :^Buffer,
+	pipeline: Pipeline,
+	font_size: [2]int,
+	font_descriptor: vk.VkDescriptorSet,
+	font_first_idx: int,
+	char_data: []stbtt.Baked_Char,
+	viewport_descriptor: vk.VkDescriptorSet,
+};
+
+MAX_NUM_CHARS :: 16 * 1024; // I don't think I'll get over this soon
+MAX_NUM_STRINGS :: 16 * 1024; // I don't think I'll get over this soon
+Char_Draw_Data :: Char_Draw_Data_GEN(MAX_NUM_CHARS, MAX_NUM_STRINGS);
