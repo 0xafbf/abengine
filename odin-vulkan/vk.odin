@@ -9975,7 +9975,7 @@ VkPhysicalDeviceRobustness2PropertiesEXT :: struct {
 	robustStorageBufferAccessSizeAlignment: VkDeviceSize,
 	robustUniformBufferAccessSizeAlignment: VkDeviceSize,
 }
-foreign import vk { "../../../VulkanSDK/1.2.135.0/Lib/vulkan-1.lib" };
+foreign import vk { "../../../../VulkanSDK/1.2.135.0/Lib/vulkan-1.lib" };
 
 @(default_calling_convention="c")//, link_prefix="glfw")
 foreign vk {
