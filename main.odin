@@ -488,10 +488,37 @@ main :: proc() {
 	text_shader_stages := create_shader_stages("content/shader_text.vert.spv", "content/shader_text.frag.spv");
 
 
+	text_push_constant_range := vk.VkPushConstantRange{};
+	text_push_constant_range.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
+	text_push_constant_range.offset = 0;//: u32,
+	text_push_constant_range.size = 16;//: u32,
+
 	viewport_descriptor_layout := create_viewport_descriptor_set_layout(binding=0);
 	font_descriptor_layout := create_font_descriptor_set_layout(binding=0);
-	text_pipeline_layout: = create_pipeline_layout({viewport_descriptor_layout, font_descriptor_layout}, {});
+	text_pipeline_layout: = create_pipeline_layout({viewport_descriptor_layout, font_descriptor_layout}, {text_push_constant_range});
 	text_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &text_vertex_info, text_pipeline_layout, text_shader_stages[:], &mix_color_blend_info);
+
+
+	rect_shader_stages := create_shader_stages("content/shader_rect.vert.spv", "content/shader_rect.frag.spv");
+
+	rect_vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
+	rect_vertex_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	rect_vertex_info.vertexBindingDescriptionCount = 0;
+	rect_vertex_info.vertexAttributeDescriptionCount = 0;
+
+	vert_push_constant_range := vk.VkPushConstantRange{};
+	vert_push_constant_range.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
+	vert_push_constant_range.offset = 0;//: u32,
+	vert_push_constant_range.size = 16;//: u32,
+
+	frag_push_constant_range := vk.VkPushConstantRange{};
+	frag_push_constant_range.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
+	frag_push_constant_range.offset = 16;//: u32,
+	frag_push_constant_range.size = 16;//: u32,
+
+	rect_pipeline_layout := create_pipeline_layout({viewport_descriptor_layout, font_descriptor_layout}, {vert_push_constant_range, frag_push_constant_range});
+
+	rect_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &rect_vertex_info, rect_pipeline_layout, rect_shader_stages[:], &mix_color_blend_info);
 
 
 
@@ -631,51 +658,17 @@ main :: proc() {
 	text_data.font_first_idx = first_char;
 	text_data.char_data = char_data;
 
-	draw_string :: proc(text_data: ^Char_Draw_Data, in_string: string, in_pos: [2]f32 ) {
 
-		pos := in_pos;
 
-		substring := &text_data.substrings[text_data.substring_count];
-		text_data.substring_count += 1;
+	rect_pipeline2 := Pipeline {rect_pipeline, rect_pipeline_layout};
+	ui_draw_commands := create_draw_commands(1000, text_data, &rect_pipeline2);
 
-		substring.string_start = text_data.char_count;
-		substring.string_size = u32(len(in_string));
+	draw_quad(&ui_draw_commands, {0,0}, {300, 100}, {1,0,0,1});
+	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 30}, {0,1,0,1});
 
-		char_data := text_data.char_data;
+	draw_quad(&ui_draw_commands, {0, 200}, {300, 100}, {0,1,0,1});
+	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 230}, {1,0,0,1});
 
-		text_num_chars := len(in_string);
-		for idx in 0..<text_num_chars {
-			array_index := text_data.char_count;
-			text_data.char_count += 1;
-
-			char_id := int(in_string[idx]) - text_data.font_first_idx;
-			char_quad := &text_data.char_quads[array_index];
-			// xpos, ypos, char_quad = stbtt.get_baked_quad(char_data, int(font_tex_size.x), int(font_tex_size.y), char_id, true);
-			stbtt.stbtt_GetBakedQuad(&char_data[0], i32(text_data.font_size.x), i32(text_data.font_size.y), i32(char_id), &pos.x, &pos.y, char_quad, 1);
-		}
-
-		assert(text_data.char_count < len(text_data.char_quads));
-	}
-
-	mystring := strings.make_builder_len(100);
-
-	for idx in 0..<100 {
-		pos: [2]f32 = {f32(idx%10 * 200), f32(idx/10) * 100};
-
-		draw_string(text_data, "#####", {pos.x, pos.y+25});
-
-		strings.reset_builder(&mystring);
-		res_string := fmt.sbprintln(&mystring, pos.x, pos.y);
-		draw_string(text_data, res_string, {pos.x, pos.y+50});
-
-		strings.reset_builder(&mystring);
-		str2 := fmt.sbprintln(&mystring, "row", idx/10);
-		draw_string(text_data, str2, {pos.x, pos.y+75});
-
-		strings.reset_builder(&mystring);
-		str3 := fmt.sbprintln(&mystring, "col", idx%10);
-		draw_string(text_data, str3, {pos.x, pos.y+100});
-	}
 
 	text_buffer := make_buffer(&text_data.char_quads[0], size_of(stbtt.Aligned_Quad) *len(text_data.char_quads), .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 	text_data.buffer = &text_buffer;
@@ -775,7 +768,7 @@ main :: proc() {
 		my_mesh_draw2,
 	};
 
-	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_data);
+	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
 
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
@@ -901,7 +894,7 @@ main :: proc() {
 			buffer_sync(&uniform_buffer);
 			buffer_sync(&uniform_buffer2);
 
-			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, text_data);
+			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
 
 		}
 
@@ -1078,14 +1071,56 @@ buffer_sync :: proc(buffer :^Buffer){
 }
 
 
+ui_collect_commands :: proc (command_buffer: vk.VkCommandBuffer, ui_commands: ^UI_Draw_Commands) {
+
+	using ui_commands;
+
+	b_offset: vk.VkDeviceSize = 0;
+	vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &text_data.buffer.handle, &b_offset);
+
+	descriptors := []vk.VkDescriptorSet {
+		text_data.viewport_descriptor,
+		text_data.font_descriptor,
+	};
+
+
+	for item_idx in 0..<num_commands {
+		command := draw_commands[item_idx];
+		switch c in command {
+		case Quad_Draw_Info:
+			vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline.layout, 0, u32(len(descriptors)), raw_data(descriptors), 0, nil);
+			vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline.pipeline);
+
+			c_copy := c;
+			vk.vkCmdPushConstants(command_buffer, rect_pipeline.layout, .VK_SHADER_STAGE_VERTEX_BIT, 0, 16, &c_copy.position);
+			vk.vkCmdPushConstants(command_buffer, rect_pipeline.layout, .VK_SHADER_STAGE_FRAGMENT_BIT, 16, 16, &c_copy.color);
+			vk.vkCmdDraw(command_buffer, 6, 1, 0, 0);
+
+
+		case String_Draw_Info:
+			vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_data.pipeline.layout, 0, u32(len(descriptors)), raw_data(descriptors), 0, nil);
+			vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_data.pipeline.pipeline);
+			c_copy := c;
+			vk.vkCmdPushConstants(command_buffer, text_data.pipeline.layout, .VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16, &c_copy.color);
+
+			substr := &text_data.substrings[c.substring_idx];
+			vk.vkCmdDraw(command_buffer, 6, u32(substr.string_size), 0, substr.string_start);
+		}
+	}
+}
+
+
 update_command_buffers :: proc (
 	swapchain: ^Swapchain,
 	command_buffers: []vk.VkCommandBuffer,
 	framebuffers: []vk.VkFramebuffer,
 	mesh_draw_infos: []Mesh_Draw_Info,
 	render_pass: vk.VkRenderPass,
-	text_draw_infos: ^Char_Draw_Data,
+	ui_draw_commands: ^UI_Draw_Commands,
 ) {
+
+	buffer_sync(ui_draw_commands.text_data.buffer);
+
 	for idx in 0..< swapchain.image_count {
 		command_buffer := command_buffers[idx];
 		framebuffer := framebuffers[idx];
@@ -1107,28 +1142,9 @@ update_command_buffers :: proc (
 			vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, mesh_draw_info.pipeline.layout, 0, 1, &my_descriptor_set, 0, nil);
 
 			vk.vkCmdDrawIndexed(command_buffer, mesh_info.index_count, 1, 0, 0, 0);
-
 		}
 
-
-		buffer_sync(text_draw_infos.buffer);
-		vk.vkCmdBindPipeline(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_infos.pipeline.pipeline);
-
-		b_offset: vk.VkDeviceSize = 0;
-		vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &text_draw_infos.buffer.handle, &b_offset);
-
-		descriptors := []vk.VkDescriptorSet {
-			text_draw_infos.viewport_descriptor,
-			text_draw_infos.font_descriptor,
-		};
-		vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, text_draw_infos.pipeline.layout, 0, u32(len(descriptors)), raw_data(descriptors), 0, nil);
-
-		for substring_idx in 0..<text_draw_infos.substring_count {
-			// draw each thing . . .
-			substr := &text_draw_infos.substrings[substring_idx];
-			vk.vkCmdDraw(command_buffer, 6, u32(substr.string_size), 0, substr.string_start);
-		}
-
+		ui_collect_commands(command_buffer, ui_draw_commands);
 
 		end_command_buffer(command_buffer);
 	}
@@ -1815,7 +1831,7 @@ Char_Draw_Data_GEN :: struct(max_char_count: u32, max_string_count: u32) {
 	buffer :^Buffer,
 	pipeline: Pipeline,
 	font_size: [2]int,
-	font_descriptor: vk.VkDescriptorSet,
+	font_descriptor: vk.VkDescriptorSet, // to keep texture
 	font_first_idx: int,
 	char_data: []stbtt.Baked_Char,
 	viewport_descriptor: vk.VkDescriptorSet,
@@ -1824,3 +1840,83 @@ Char_Draw_Data_GEN :: struct(max_char_count: u32, max_string_count: u32) {
 MAX_NUM_CHARS :: 16 * 1024; // I don't think I'll get over this soon
 MAX_NUM_STRINGS :: 16 * 1024; // I don't think I'll get over this soon
 Char_Draw_Data :: Char_Draw_Data_GEN(MAX_NUM_CHARS, MAX_NUM_STRINGS);
+
+
+Quad_Draw_Info :: struct {
+	position: linalg.Vector2,
+	size: linalg.Vector2,
+	color: linalg.Vector4,
+};
+String_Draw_Info :: struct {
+	substring_idx: uint,
+	color: linalg.Vector4,
+};
+
+UI_Draw_Info :: union {
+	Quad_Draw_Info,
+	String_Draw_Info,
+};
+
+UI_Draw_Commands :: struct {
+	draw_commands: []UI_Draw_Info,
+	text_data: ^Char_Draw_Data,
+	num_commands: uint,
+	rect_pipeline: ^Pipeline,
+};
+
+create_draw_commands :: proc (count: uint, text_data: ^Char_Draw_Data, rect_pipeline: ^Pipeline) -> UI_Draw_Commands {
+	draw_commands := UI_Draw_Commands{};
+	draw_commands.draw_commands = make([]UI_Draw_Info, count);
+	draw_commands.num_commands = 0;
+	draw_commands.text_data = text_data;
+	draw_commands.rect_pipeline = rect_pipeline;
+	return draw_commands;
+}
+
+draw_quad :: proc(cmd_list: ^UI_Draw_Commands, position, size: linalg.Vector2, color: linalg.Vector4) {
+	draw_info := Quad_Draw_Info {
+		position = position,
+		size = size,
+		color = color,
+	};
+	cmd_list.draw_commands[cmd_list.num_commands] = draw_info;
+	cmd_list.num_commands += 1;
+}
+draw_string2 :: proc(cmd_list: ^UI_Draw_Commands, text: string, position: linalg.Vector2, color: linalg.Vector4) {
+	substring_idx := draw_string(cmd_list.text_data, text, auto_cast position);
+	draw_info := String_Draw_Info {
+		substring_idx = substring_idx,
+		color = color,
+	};
+	cmd_list.draw_commands[cmd_list.num_commands] = draw_info;
+	cmd_list.num_commands += 1;
+}
+
+
+draw_string :: proc(text_data: ^Char_Draw_Data, in_string: string, in_pos: [2]f32 ) -> (substring_idx: uint) {
+
+	pos := in_pos;
+
+	substring_idx = text_data.substring_count;
+	substring := &text_data.substrings[substring_idx];
+	text_data.substring_count += 1;
+
+	substring.string_start = text_data.char_count;
+	substring.string_size = u32(len(in_string));
+
+	char_data := text_data.char_data;
+
+	text_num_chars := len(in_string);
+	for idx in 0..<text_num_chars {
+		array_index := text_data.char_count;
+		text_data.char_count += 1;
+
+		char_id := int(in_string[idx]) - text_data.font_first_idx;
+		char_quad := &text_data.char_quads[array_index];
+		// xpos, ypos, char_quad = stbtt.get_baked_quad(char_data, int(font_tex_size.x), int(font_tex_size.y), char_id, true);
+		stbtt.stbtt_GetBakedQuad(&char_data[0], i32(text_data.font_size.x), i32(text_data.font_size.y), i32(char_id), &pos.x, &pos.y, char_quad, 1);
+	}
+
+	assert(text_data.char_count < len(text_data.char_quads));
+	return;
+}
