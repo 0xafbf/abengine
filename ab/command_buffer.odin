@@ -102,7 +102,7 @@ begin_command_buffer :: proc(
 
 
 	scissor := vk.VkRect2D {};
-	scissor.extent = {swapchain.width, swapchain.height};
+	scissor.extent = {swapchain.size.x, swapchain.size.y};
 
 	render_pass_begin_info.framebuffer = framebuffer;
 	render_pass_begin_info.renderArea.extent = scissor.extent;
@@ -113,8 +113,8 @@ begin_command_buffer :: proc(
 	viewport := vk.VkViewport {};
 	viewport.x = 0;
 	viewport.y = 0;
-	viewport.width = f32(swapchain.width);
-	viewport.height = f32(swapchain.height);
+	viewport.width = f32(swapchain.size.x);
+	viewport.height = f32(swapchain.size.y);
 	viewport.minDepth = 0;
 	viewport.maxDepth = 1;
 

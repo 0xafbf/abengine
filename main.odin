@@ -20,215 +20,56 @@ import "ab"
 
 main :: proc() {
 	using ab;
-	fmt.println("STAGE 1");
-	glfw.init();
+	engine_init();
+	ctx := get_context();
+
+
+	device := ctx.device;
+
+
+
+
+	//create window
 	glfw.window_hint(.CLIENT_API, int(glfw.NO_API));
-
-	all_monitors := glfw.get_monitors();
-	primary_monitor := glfw.get_primary_monitor();
-
-	target_monitor :glfw.Monitor_Handle = primary_monitor;
-	for monitor in all_monitors {
-		if monitor != primary_monitor {
-			target_monitor = monitor;
-		}
-	}
-
-	monitor_x, monitor_y := glfw.get_monitor_pos(target_monitor);
-
-	win := glfw.create_window(800, 600, "Window", nil, nil);
-
-	glfw.set_window_pos(win, monitor_x + 200, monitor_y +200);
-
-	app_info := vk.VkApplicationInfo {};
-	app_info.sType = .VK_STRUCTURE_TYPE_APPLICATION_INFO;
-	app_info.pApplicationName = "My Game";
-	app_info.applicationVersion = vk.VK_MAKE_VERSION(0, 1, 0);
-	app_info.pEngineName = "Botero";
-	app_info.engineVersion = vk.VK_MAKE_VERSION(0, 1, 0);
-	app_info.apiVersion = vk.VK_MAKE_VERSION(1, 1, 0);
-
-	instance_info := vk.VkInstanceCreateInfo {};
-	instance_info.sType = .VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-	instance_info.pApplicationInfo = &app_info;
+	window_size: [2]u32 = {800, 600};
+	win := glfw.create_window(int(window_size.x), int(window_size.y), "Window", nil, nil);
+	glfw.set_window_pos(win, 200 - 1920, 200);
 
 
-	all_extensions: [dynamic]cstring;
+	// surface stuff ========================
 
-	glfw_extension_count :u32;
-	glfw_extensions :^cstring = glfw_bindings.GetRequiredInstanceExtensions(&glfw_extension_count);
-
-	glfw_slice := mem.slice_ptr(glfw_extensions, int(glfw_extension_count));
-
-	for elem in glfw_slice {
-		append(&all_extensions, elem);
-	}
-
-	append(&all_extensions, vk.VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-
-	instance_info.enabledExtensionCount = u32(len(all_extensions));
-	instance_info.ppEnabledExtensionNames = &all_extensions[0];
-
-
-	layers := []cstring {
-		"VK_LAYER_KHRONOS_validation"
-	};
-
-	fmt.println(layers);
-
-	instance_info.ppEnabledLayerNames = &layers[0];
-	instance_info.enabledLayerCount = u32 (len(layers));
-
-	fmt.println("STAGE 2");
-
-	messenger_info := vk.VkDebugUtilsMessengerCreateInfoEXT{};
-	messenger_info.sType = .VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-
-	messenger_info.messageSeverity = .VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | .VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | .VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
-
-	messenger_info.messageType = .VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |  .VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |  .VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-
-	messenger_info.pfnUserCallback = debugCallback;
-
-	instance_info.pNext = &messenger_info;
-
-
-	instance: vk.VkInstance = ---;
-
-	vk.CHECK(vk.vkCreateInstance(&instance_info, nil, &instance));
-
-	messenger_type :: type_of(vk.vkCreateDebugUtilsMessengerEXT);
-	create_messenger := cast(messenger_type) vk.vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-	// assert(create_messenger != nil);
-	messenger :vk.VkDebugUtilsMessengerEXT = ---;
-	create_messenger(instance, &messenger_info, nil, &messenger);
-
-	physical_devices := [4]vk.VkPhysicalDevice {};
-	current_device_count :u32 = len(physical_devices);
-
-	vk.vkEnumeratePhysicalDevices(instance, &current_device_count, &physical_devices[0]);
-
-	selected_device :u32 = 0;
-	for idx in 0..<current_device_count {
-		device_features :vk.VkPhysicalDeviceFeatures = ---;
-		vk.vkGetPhysicalDeviceFeatures(physical_devices[idx], &device_features);
-		if (!device_features.geometryShader) {
-			continue;
-		}
-
-		device_properties :vk.VkPhysicalDeviceProperties = ---;
-		vk.vkGetPhysicalDeviceProperties(physical_devices[idx], &device_properties);
-
-		fmt.println("phisical device:", cast(cstring)&device_properties.deviceName[0]);
-		selected_device = idx;
-		break;
-	}
-	fmt.println("STAGE 3");
-
-
-	// surface stuff
 	surface :vk.VkSurfaceKHR = ---;
-	vk.CHECK(auto_cast glfw_bindings.CreateWindowSurface(auto_cast instance, win, nil, auto_cast &surface));
+	vk.CHECK(auto_cast glfw_bindings.CreateWindowSurface(auto_cast ctx.instance, win, nil, auto_cast &surface));
 	// this needs to be done first, as we need to get a present queue that can
 	// present to this surface
-	fmt.println("STAGE 3a");
 
-
-	physical_device := physical_devices[selected_device];
-	fmt.println("STAGE 3a2");
-
-	ctx := get_context();
-	fmt.println("STAGE 3a3");
-	fmt.println("context:", ctx);
-	fmt.println("physical_device:", physical_device);
-	ctx.physical_device = physical_device;
-	fmt.println("STAGE 3a4");
-
-	queue_family_props :[10]vk.VkQueueFamilyProperties = ---;
-	fmt.println("STAGE 3a5");
-	queue_family_count :u32 = len(queue_family_props);
-	fmt.println("STAGE 3a6");
-	vk.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, &queue_family_props[0]);
-	fmt.println("STAGE 3b");
-
-	graphics_queue_family_idx :u32;
 	present_queue_family_idx :u32;
-	graphics_queue_found := false;
 	present_queue_found := false;
-	for idx in 0..<queue_family_count {
-		if (queue_family_props[idx].queueFlags & .VK_QUEUE_GRAPHICS_BIT != auto_cast 0) {
-			graphics_queue_family_idx = idx;
-			graphics_queue_found = true;
-		}
 
+	for idx in 0..<ctx.queue_family_count {
 		present_support :vk.VkBool32 = false;
-		vk.vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, idx, surface, &present_support);
+		vk.vkGetPhysicalDeviceSurfaceSupportKHR(ctx.physical_device, idx, surface, &present_support);
 		if present_support {
 			present_queue_family_idx = idx;
 			present_queue_found = true;
 		}
 	}
-
-	assert(graphics_queue_found);
 	assert(present_queue_found);
-	fmt.println("STAGE 4");
 
-	queue_infos := [2]vk.VkDeviceQueueCreateInfo {};
+	graphics_queue :vk.VkQueue = ---;
+	vk.vkGetDeviceQueue(ctx.device, ctx.graphics_queue_family_idx, 0, &graphics_queue);
 
-	graphics_queue_info := &queue_infos[0];
-	graphics_queue_info.sType = .VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	graphics_queue_info.queueFamilyIndex = graphics_queue_family_idx;
-	graphics_queue_info.queueCount = 1;
-	graphics_queue_priority :f32 = 1.;
-	graphics_queue_info.pQueuePriorities = &graphics_queue_priority;
-
-	present_queue_info := &queue_infos[1];
-	present_queue_info.sType = .VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-	present_queue_info.queueFamilyIndex = present_queue_family_idx;
-	present_queue_info.queueCount = 1;
-	present_queue_priority :f32 = 1.;
-	present_queue_info.pQueuePriorities = &present_queue_priority;
+	present_queue :vk.VkQueue = ---;
+	vk.vkGetDeviceQueue(ctx.device, present_queue_family_idx, 0, &present_queue);
 
 
-	num_extension_properties :u32 = 0;
-	vk.vkEnumerateDeviceExtensionProperties(physical_device, nil, &num_extension_properties, nil);
-
-	extension_properties := make([]vk.VkExtensionProperties, num_extension_properties);
-
-	vk.vkEnumerateDeviceExtensionProperties(physical_device, nil, &num_extension_properties, &extension_properties[0]);
-
-
-	device_extensions := [dynamic]cstring{};
-	append(&device_extensions, vk.VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-
-	all_extensions_found := true;
-	for idx in 0..< len(device_extensions) {
-		extension_found := false;
-		device_extension := device_extensions[idx];
-		for jdx in 0..< num_extension_properties {
-			available_extension := string(cast(cstring) &extension_properties[jdx].extensionName[0]);
-			device_extension_str := string(device_extension);
-			if (strings.compare(available_extension, device_extension_str) == 0) {
-				extension_found = true;
-				break;
-			}
-		}
-		if (!extension_found) {
-			all_extensions_found = false;
-			break;
-		}
-	}
-	assert(all_extensions_found);
-	delete(extension_properties);
-
-
-	fmt.println("STAGE 5");
+	// pre swapchain ========================
 
 	format_count :u32 = 0;
-	vk.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, nil);
+	vk.vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.physical_device, surface, &format_count, nil);
 
 	formats := make([]vk.VkSurfaceFormatKHR, format_count);
-	vk.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, &formats[0]);
+	vk.vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.physical_device, surface, &format_count, &formats[0]);
 	assert(format_count > 0);
 
 	desired_format := vk.VkSurfaceFormatKHR {};
@@ -248,15 +89,12 @@ main :: proc() {
 	assert(format_available);
 	delete(formats);
 
-
-
 	present_modes_count :u32 = 0;
-	vk.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_modes_count, nil);
+	vk.vkGetPhysicalDeviceSurfacePresentModesKHR(ctx.physical_device, surface, &present_modes_count, nil);
 
 	present_modes := make([]vk.VkPresentModeKHR, present_modes_count);
-	vk.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_modes_count, &present_modes[0]);
+	vk.vkGetPhysicalDeviceSurfacePresentModesKHR(ctx.physical_device, surface, &present_modes_count, &present_modes[0]);
 	assert(present_modes_count > 0);
-
 
 	present_mode := vk.VkPresentModeKHR.VK_PRESENT_MODE_FIFO_KHR;
 	for idx in 0..<present_modes_count {
@@ -267,62 +105,30 @@ main :: proc() {
 
 	delete(present_modes);
 
-
-	WIDTH:: 800;
-	HEIGHT:: 600;
-
+// TODO: validate
 	capabilities :vk.VkSurfaceCapabilitiesKHR = ---;
-	vk.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities);
+	vk.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.physical_device, surface, &capabilities);
 
-	surface_extents := vk.VkExtent2D{WIDTH, HEIGHT};
-	assert(surface_extents.width >= capabilities.minImageExtent.width);
-	assert(surface_extents.width <= capabilities.maxImageExtent.width);
-	assert(surface_extents.height >= capabilities.minImageExtent.height);
-	assert(surface_extents.height <= capabilities.maxImageExtent.height);
+
+	assert(window_size.x >= capabilities.minImageExtent.width);
+	assert(window_size.x <= capabilities.maxImageExtent.width);
+	assert(window_size.y >= capabilities.minImageExtent.height);
+	assert(window_size.y <= capabilities.maxImageExtent.height);
 
 	image_count :u32 = capabilities.minImageCount + 1;
 	if (capabilities.maxImageCount != 0) {
 		assert(image_count <= capabilities.maxImageCount);
 	}
+	// end pre-swapchain
 
-
-
-	device_features := vk.VkPhysicalDeviceFeatures {};
-
-
-	device_info := vk.VkDeviceCreateInfo {};
-	device_info.sType = .VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-	device_info.pQueueCreateInfos = &queue_infos[0];
-	device_info.queueCreateInfoCount = len(queue_infos);
-
-	device_info.pEnabledFeatures = &device_features;
-	device_info.enabledExtensionCount = u32(len(device_extensions));
-	device_info.ppEnabledExtensionNames = &device_extensions[0];
-
-	device :vk.VkDevice = ---;
-
-	vk.CHECK(vk.vkCreateDevice(physical_device, &device_info, nil, &device));
-	ctx.device = device;
-	fmt.println("Created vulkan device");
-
-
-
-
-
-	queue_indices := []u32 {graphics_queue_family_idx, present_queue_family_idx};
 
 	p_queue_indices := []u32 {};
-	if (graphics_queue_family_idx != present_queue_family_idx) {
-		p_queue_indices = queue_indices;
+	if (ctx.graphics_queue_family_idx != present_queue_family_idx) {
+		p_queue_indices = {ctx.graphics_queue_family_idx, present_queue_family_idx};
 	}
 
-	my_swapchain := create_swapchain(surface, surface_extents, image_count, desired_format.format, desired_format.colorSpace, p_queue_indices, present_mode);
+	my_swapchain := create_swapchain(surface, window_size, image_count, desired_format.format, desired_format.colorSpace, p_queue_indices, present_mode);
 
-	graphics_queue :vk.VkQueue = ---;
-	vk.vkGetDeviceQueue(device, graphics_queue_family_idx, 0, &graphics_queue);
-
-	present_queue :vk.VkQueue = ---;
-	vk.vkGetDeviceQueue(device, present_queue_family_idx, 0, &present_queue);
 
 
 	Vertex :: struct {
@@ -475,19 +281,9 @@ main :: proc() {
 
 
 	framebuffers := make([]vk.VkFramebuffer, my_swapchain.image_count);
-
-	framebuffer_info := vk.VkFramebufferCreateInfo {};
-	framebuffer_info.sType = .VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-	framebuffer_info.renderPass = render_pass;
-	framebuffer_info.attachmentCount = 1;
-	framebuffer_info.layers = 1;
 	for idx in 0..< my_swapchain.image_count {
-		framebuffer_info.pAttachments = &my_swapchain.image_views[idx];
-		framebuffer_info.width = my_swapchain.width;
-		framebuffer_info.height = my_swapchain.height;
-		vk.CHECK(vk.vkCreateFramebuffer(device, &framebuffer_info, nil, &framebuffers[idx]));
+		framebuffers[idx] = create_framebuffer(render_pass, {my_swapchain.image_views[idx]}, my_swapchain.size);
 	}
-
 
 
 	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -547,7 +343,7 @@ main :: proc() {
 	ubo.view = linalg.matrix4_from_trs(t, r222, s);
 	ubo2.view = ubo.view;
 
-	aspect := f32(my_swapchain.width) / f32(my_swapchain.height);
+	aspect := f32(my_swapchain.size.x) / f32(my_swapchain.size.y);
 	ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
 	ubo2.proj = ubo.proj;
 	// ubo2.proj = linalg.matrix4_scale({1/aspect, -1, 1});
@@ -567,8 +363,8 @@ main :: proc() {
 		bottom: f32,
 	};
 	viewport_data := Viewport_Data {};
-	viewport_data.right = f32(my_swapchain.width);
-	viewport_data.bottom = f32(my_swapchain.height);
+	viewport_data.right = f32(my_swapchain.size.x);
+	viewport_data.bottom = f32(my_swapchain.size.y);
 	viewport_buffer := make_buffer(&viewport_data, size_of(viewport_data), .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 
@@ -634,7 +430,7 @@ main :: proc() {
 
 	graphics_command_pool_info := vk.VkCommandPoolCreateInfo {};
 	graphics_command_pool_info.sType = .VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	graphics_command_pool_info.queueFamilyIndex = graphics_queue_family_idx;
+	graphics_command_pool_info.queueFamilyIndex = ctx.graphics_queue_family_idx;
 	graphics_command_pool_info.flags = .VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
 	graphics_command_pool :vk.VkCommandPool = ---;
@@ -801,17 +597,14 @@ main :: proc() {
 			recreate_swapchain(&my_swapchain, {u32(width), u32(height)});
 
 			for idx in 0..< my_swapchain.image_count {
-				framebuffer_info.pAttachments = &my_swapchain.image_views[idx];
-				framebuffer_info.width = my_swapchain.width;
-				framebuffer_info.height = my_swapchain.height;
-				vk.CHECK(vk.vkCreateFramebuffer(device, &framebuffer_info, nil, &framebuffers[idx]));
+				framebuffers[idx] = create_framebuffer(render_pass, {my_swapchain.image_views[idx]}, {my_swapchain.size.x, my_swapchain.size.y});
 			}
 
-			viewport_data.right = f32(my_swapchain.width);
-			viewport_data.bottom = f32(my_swapchain.height);
+			viewport_data.right = f32(my_swapchain.size.x);
+			viewport_data.bottom = f32(my_swapchain.size.y);
 			buffer_sync(&viewport_buffer);
 
-			aspect := f32(my_swapchain.width) / f32(my_swapchain.height);
+			aspect := f32(my_swapchain.size.x) / f32(my_swapchain.size.y);
 			ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
 			ubo2.proj = ubo.proj;
 			buffer_sync(&uniform_buffer);

@@ -5,20 +5,19 @@ import vk "shared:odin-vulkan"
 MAX_SWAPCHAIN_IMAGES :: 4;
 
 Swapchain :: struct {
-	width       :u32,
-	height      :u32,
-	handle   :vk.VkSwapchainKHR,
-	image_count :u32,
+	size:        [2]u32,
+	handle:      vk.VkSwapchainKHR,
+	image_count: u32,
 	create_info: vk.VkSwapchainCreateInfoKHR,
-	images:    [MAX_SWAPCHAIN_IMAGES]vk.VkImage,
-	image_views:    [MAX_SWAPCHAIN_IMAGES]vk.VkImageView,
+	images:      [MAX_SWAPCHAIN_IMAGES]vk.VkImage,
+	image_views: [MAX_SWAPCHAIN_IMAGES]vk.VkImageView,
 };
 
 
 
 create_swapchain :: proc(
 	surface: vk.VkSurfaceKHR,
-	extent: vk.VkExtent2D,
+	extent: [2]u32,
 	image_count: u32,
 	format: vk.VkFormat,
 	color_space: vk.VkColorSpaceKHR,
@@ -27,8 +26,7 @@ create_swapchain :: proc(
 ) -> Swapchain {
 
 	swapchain := Swapchain{};
-	swapchain.width = extent.width;
-	swapchain.height = extent.height;
+	swapchain.size = extent;
 	// swapchain.image_count = swapchain.image_count; // reset on recreate_swapchain
 
 	swapchain_info := &swapchain.create_info;
@@ -38,7 +36,7 @@ create_swapchain :: proc(
 	swapchain_info.minImageCount = image_count;
 	swapchain_info.imageFormat = format;
 	swapchain_info.imageColorSpace = color_space;
-	swapchain_info.imageExtent = {swapchain.width, swapchain.height};
+	swapchain_info.imageExtent = {swapchain.size.x, swapchain.size.y};
 	swapchain_info.imageArrayLayers = 1;
 	swapchain_info.imageUsage = .VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
@@ -58,16 +56,15 @@ create_swapchain :: proc(
 	swapchain_info.oldSwapchain = nil;
 
 
-	recreate_swapchain(&swapchain, {swapchain.width, swapchain.height});
+	recreate_swapchain(&swapchain, {swapchain.size.x, swapchain.size.y});
 
 	return swapchain;
 }
 
 
-recreate_swapchain :: proc(swapchain: ^Swapchain, extent: vk.VkExtent2D) {
-	swapchain.width = extent.width;
-	swapchain.height = extent.height;
-	swapchain.create_info.imageExtent = {swapchain.width, swapchain.height};
+recreate_swapchain :: proc(swapchain: ^Swapchain, extent: [2]u32) {
+	swapchain.size = extent;
+	swapchain.create_info.imageExtent = {swapchain.size.x, swapchain.size.y};
 	ctx := get_context();
 	vk.CHECK(vk.vkCreateSwapchainKHR(ctx.device, &swapchain.create_info, nil, &swapchain.handle));
 
@@ -128,3 +125,25 @@ create_render_pass :: proc (
 	vk.CHECK(vk.vkCreateRenderPass(ctx.device, &render_pass_info, nil, &render_pass));
 	return render_pass;
 }
+
+
+create_framebuffer :: proc(
+	render_pass: vk.VkRenderPass,
+	attachments: []vk.VkImageView,
+	size: [2]u32,
+) -> vk.VkFramebuffer {
+	framebuffer_info := vk.VkFramebufferCreateInfo {};
+	framebuffer_info.sType = .VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+	framebuffer_info.renderPass = render_pass;
+	framebuffer_info.layers = 1;
+	framebuffer_info.width = size.x;
+	framebuffer_info.height = size.y;
+	framebuffer_info.attachmentCount = u32(len(attachments));
+	framebuffer_info.pAttachments = raw_data(attachments);
+
+	handle: vk.VkFramebuffer = ---;
+	ctx := get_context();
+	vk.CHECK(vk.vkCreateFramebuffer(ctx.device, &framebuffer_info, nil, &handle));
+	return handle;
+}
+
