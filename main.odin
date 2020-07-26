@@ -95,8 +95,7 @@ main :: proc() {
 
 	instance: vk.VkInstance = ---;
 
-	r := vk.vkCreateInstance(&instance_info, nil, &instance);
-	assert(r == .VK_SUCCESS);
+	vk.CHECK(vk.vkCreateInstance(&instance_info, nil, &instance));
 
 	messenger_type :: type_of(vk.vkCreateDebugUtilsMessengerEXT);
 	create_messenger := cast(messenger_type) vk.vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -129,10 +128,7 @@ main :: proc() {
 
 	// surface stuff
 	surface :vk.VkSurfaceKHR = ---;
-	r2 := glfw_bindings.CreateWindowSurface(auto_cast instance, win, nil, auto_cast &surface);
-	r = auto_cast r2;
-
-	assert(r == .VK_SUCCESS);
+	vk.CHECK(auto_cast glfw_bindings.CreateWindowSurface(auto_cast instance, win, nil, auto_cast &surface));
 	// this needs to be done first, as we need to get a present queue that can
 	// present to this surface
 	fmt.println("STAGE 3a");
@@ -289,33 +285,6 @@ main :: proc() {
 		assert(image_count <= capabilities.maxImageCount);
 	}
 
-	swapchain_info := vk.VkSwapchainCreateInfoKHR {};
-	swapchain_info.sType = .VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-	swapchain_info.surface = surface;
-	// VkSwapchainCreateFlagsKHR          flags;
-	swapchain_info.minImageCount = image_count;
-	swapchain_info.imageFormat = desired_format.format;
-	swapchain_info.imageColorSpace = desired_format.colorSpace;
-	swapchain_info.imageExtent = surface_extents;
-	swapchain_info.imageArrayLayers = 1;
-	swapchain_info.imageUsage = .VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-	queue_indices := []u32 {graphics_queue_family_idx, present_queue_family_idx};
-	if (graphics_queue_family_idx != present_queue_family_idx) {
-		swapchain_info.imageSharingMode = .VK_SHARING_MODE_CONCURRENT;
-		swapchain_info.queueFamilyIndexCount = 2;
-		swapchain_info.pQueueFamilyIndices = &queue_indices[0];
-	} else {
-		swapchain_info.imageSharingMode = .VK_SHARING_MODE_EXCLUSIVE;
-		swapchain_info.queueFamilyIndexCount = 0;
-		swapchain_info.pQueueFamilyIndices = nil;
-	}
-
-	swapchain_info.preTransform = capabilities.currentTransform;
-	swapchain_info.compositeAlpha = .VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-	swapchain_info.presentMode = present_mode;
-	swapchain_info.clipped = true;
-	swapchain_info.oldSwapchain = nil;
 
 
 	device_features := vk.VkPhysicalDeviceFeatures {};
@@ -332,36 +301,22 @@ main :: proc() {
 
 	device :vk.VkDevice = ---;
 
-	r = vk.vkCreateDevice(physical_device, &device_info, nil, &device);
-	assert(r == .VK_SUCCESS);
+	vk.CHECK(vk.vkCreateDevice(physical_device, &device_info, nil, &device));
 	ctx.device = device;
 	fmt.println("Created vulkan device");
 
 
-	swapchain :vk.VkSwapchainKHR = ---;
-	r = vk.vkCreateSwapchainKHR(device, &swapchain_info, nil, &swapchain);
 
 
 
-	my_swapchain := Swapchain {
-		width = surface_extents.width,
-		height = surface_extents.height,
-		swapchain = swapchain,
-		image_count = image_count,
-	};
+	queue_indices := []u32 {graphics_queue_family_idx, present_queue_family_idx};
 
-	swapchain_image_count :u32 = 0;
-	vk.vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nil);
-
-	swapchain_images := make([]vk.VkImage, swapchain_image_count);
-
-	vk.vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, &swapchain_images[0]);
-
-	swapchain_image_views := make([]vk.VkImageView, swapchain_image_count);
-
-	for idx in 0..<swapchain_image_count {
-		swapchain_image_views[idx] = create_image_view(swapchain_images[idx], desired_format.format);
+	p_queue_indices := []u32 {};
+	if (graphics_queue_family_idx != present_queue_family_idx) {
+		p_queue_indices = queue_indices;
 	}
+
+	my_swapchain := create_swapchain(surface, surface_extents, image_count, desired_format.format, desired_format.colorSpace, p_queue_indices, present_mode);
 
 	graphics_queue :vk.VkQueue = ---;
 	vk.vkGetDeviceQueue(device, graphics_queue_family_idx, 0, &graphics_queue);
@@ -519,17 +474,17 @@ main :: proc() {
 
 
 
-	framebuffers := make([]vk.VkFramebuffer, swapchain_image_count);
+	framebuffers := make([]vk.VkFramebuffer, my_swapchain.image_count);
 
 	framebuffer_info := vk.VkFramebufferCreateInfo {};
 	framebuffer_info.sType = .VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 	framebuffer_info.renderPass = render_pass;
 	framebuffer_info.attachmentCount = 1;
 	framebuffer_info.layers = 1;
-	for idx in 0..< swapchain_image_count {
-		framebuffer_info.pAttachments = &swapchain_image_views[idx];
-		framebuffer_info.width = surface_extents.width;
-		framebuffer_info.height = surface_extents.height;
+	for idx in 0..< my_swapchain.image_count {
+		framebuffer_info.pAttachments = &my_swapchain.image_views[idx];
+		framebuffer_info.width = my_swapchain.width;
+		framebuffer_info.height = my_swapchain.height;
 		vk.CHECK(vk.vkCreateFramebuffer(device, &framebuffer_info, nil, &framebuffers[idx]));
 	}
 
@@ -592,7 +547,7 @@ main :: proc() {
 	ubo.view = linalg.matrix4_from_trs(t, r222, s);
 	ubo2.view = ubo.view;
 
-	aspect := f32(surface_extents.width) / f32(surface_extents.height);
+	aspect := f32(my_swapchain.width) / f32(my_swapchain.height);
 	ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
 	ubo2.proj = ubo.proj;
 	// ubo2.proj = linalg.matrix4_scale({1/aspect, -1, 1});
@@ -612,8 +567,8 @@ main :: proc() {
 		bottom: f32,
 	};
 	viewport_data := Viewport_Data {};
-	viewport_data.right = f32(surface_extents.width);
-	viewport_data.bottom = f32(surface_extents.height);
+	viewport_data.right = f32(my_swapchain.width);
+	viewport_data.bottom = f32(my_swapchain.height);
 	viewport_buffer := make_buffer(&viewport_data, size_of(viewport_data), .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 
@@ -725,19 +680,13 @@ main :: proc() {
 	text_data.font_descriptor = text_font_descriptor_set[0];
 	text_data.viewport_descriptor = text_viewport_descriptor_set[0];
 
-	// VkCommandPoolCreateInfo present_command_pool_info {};
-	// present_command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	// present_command_pool_info.queueFamilyIndex = present_queue_family_idx;
-	// VkCommandPool present_command_pool;
-	// vkCreateCommandPool(device, &present_command_pool_info, nil, &present_command_pool);
-
 	command_buffer_info := vk.VkCommandBufferAllocateInfo {};
 	command_buffer_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 	command_buffer_info.commandPool = graphics_command_pool;
 	command_buffer_info.level = .VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	command_buffer_info.commandBufferCount = swapchain_image_count;
+	command_buffer_info.commandBufferCount = my_swapchain.image_count;
 
-	command_buffers := make([]vk.VkCommandBuffer, swapchain_image_count);
+	command_buffers := make([]vk.VkCommandBuffer, my_swapchain.image_count);
 
 	vk.vkAllocateCommandBuffers(device, &command_buffer_info, &command_buffers[0]);
 
@@ -799,8 +748,6 @@ main :: proc() {
 		cursor_x, cursor_y := glfw.get_cursor_pos(win);
 
 
-		fmt.println("cursor:", cursor_x, cursor_y);
-
 		rot += 0.05;
 		ubo.model = linalg.matrix4_rotate(rot/10, {0, 0, 1});
 		buffer_sync(&uniform_buffer);
@@ -811,7 +758,7 @@ main :: proc() {
 		vk.vkWaitForFences(device, 1, &in_flight_fences[current_frame], true, bits.U64_MAX);
 
 		image_index :u32 = ---;
-		vk.vkAcquireNextImageKHR(device, swapchain, bits.U64_MAX, image_available_semaphore[current_frame], nil, &image_index);
+		vk.vkAcquireNextImageKHR(device, my_swapchain.handle, bits.U64_MAX, image_available_semaphore[current_frame], nil, &image_index);
 
 
 		if (image_fences[image_index] != nil) {
@@ -838,7 +785,7 @@ main :: proc() {
 		present_info.waitSemaphoreCount = 1;
 		present_info.pWaitSemaphores = &render_finished_semaphore[current_frame];
 		present_info.swapchainCount = 1;
-		present_info.pSwapchains = &swapchain;
+		present_info.pSwapchains = &my_swapchain.handle;
 		present_info.pImageIndices = &image_index;
 		present_info.pResults = nil;
 
@@ -849,48 +796,22 @@ main :: proc() {
 
 			vk.vkDeviceWaitIdle(device);
 
-			// recreate_swapchain();
-
 			width, height := glfw.get_framebuffer_size(win);
-			// glfwWaitEvents();
-			// vkFreeCommandBuffers(device, graphics_command_pool, swapchain_image_count, command_buffers);
 
-			for idx in 0..< swapchain_image_count {
-				vk.vkDestroyFramebuffer(device, framebuffers[idx], nil);
-				vk.vkDestroyImageView(device, swapchain_image_views[idx], nil);
-			}
+			recreate_swapchain(&my_swapchain, {u32(width), u32(height)});
 
-			vk.vkDestroySwapchainKHR(device, swapchain, nil);
-
-			surface_extents.width = u32(width);
-			surface_extents.height = u32(height);
-			swapchain_info.imageExtent = surface_extents;
-			vk.CHECK(vk.vkCreateSwapchainKHR(device, &swapchain_info, nil, &swapchain));
-
-			my_swapchain.swapchain = swapchain;
-			my_swapchain.width = u32(width);
-			my_swapchain.height = u32(height);
-
-			vk.vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nil);
-			vk.vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, &swapchain_images[0]);
-
-			for idx in 0..< swapchain_image_count {
-				// todo: clean previous imageviews
-				swapchain_image_views[idx] = create_image_view(swapchain_images[idx], desired_format.format);
-			}
-
-			for idx in 0..< swapchain_image_count {
-				framebuffer_info.pAttachments = &swapchain_image_views[idx];
-				framebuffer_info.width = surface_extents.width;
-				framebuffer_info.height = surface_extents.height;
+			for idx in 0..< my_swapchain.image_count {
+				framebuffer_info.pAttachments = &my_swapchain.image_views[idx];
+				framebuffer_info.width = my_swapchain.width;
+				framebuffer_info.height = my_swapchain.height;
 				vk.CHECK(vk.vkCreateFramebuffer(device, &framebuffer_info, nil, &framebuffers[idx]));
 			}
 
-			viewport_data.right = f32(surface_extents.width);
-			viewport_data.bottom = f32(surface_extents.height);
+			viewport_data.right = f32(my_swapchain.width);
+			viewport_data.bottom = f32(my_swapchain.height);
 			buffer_sync(&viewport_buffer);
 
-			aspect := f32(surface_extents.width) / f32(surface_extents.height);
+			aspect := f32(my_swapchain.width) / f32(my_swapchain.height);
 			ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
 			ubo2.proj = ubo.proj;
 			buffer_sync(&uniform_buffer);

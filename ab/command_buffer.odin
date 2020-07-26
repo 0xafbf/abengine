@@ -1,6 +1,6 @@
 package ab
 import vk "shared:odin-vulkan"
-
+import "core:fmt"
 
 
 begin_single_use_command_buffer :: proc(pool: vk.VkCommandPool) -> vk.VkCommandBuffer {
@@ -50,7 +50,6 @@ update_command_buffers :: proc (
 	render_pass: vk.VkRenderPass,
 	ui_draw_commands: ^UI_Draw_Commands,
 ) {
-
 	buffer_sync(ui_draw_commands.text_data.buffer);
 
 	for idx in 0..< swapchain.image_count {
