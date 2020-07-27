@@ -18,49 +18,44 @@ import "shared:odin-stb/stbtt"
 import "ab"
 
 
-main :: proc() {
-	using ab;
-	engine_init();
-	ctx := get_context();
 
+Window :: struct {
+	size: [2]u32,
+	handle: glfw.Window_Handle,
+	surface: vk.VkSurfaceKHR,
+	swapchain: ab.Swapchain,
+};
 
-	device := ctx.device;
-
-
-
-
-	//create window
+create_window :: proc(in_size: [2]u32, name: string) -> Window {
+	using window := Window {
+		size = in_size,
+	};
 	glfw.window_hint(.CLIENT_API, int(glfw.NO_API));
-	window_size: [2]u32 = {800, 600};
-	win := glfw.create_window(int(window_size.x), int(window_size.y), "Window", nil, nil);
-	glfw.set_window_pos(win, 200 - 1920, 200);
+	window.handle = glfw.create_window(int(size.x), int(size.y), name, nil, nil);
+
+	ctx := ab.get_context();
+	vk.CHECK(auto_cast glfw_bindings.CreateWindowSurface(
+		auto_cast ctx.instance,
+		handle, nil,
+		auto_cast&surface)
+	);
 
 
-	// surface stuff ========================
-
-	surface :vk.VkSurfaceKHR = ---;
-	vk.CHECK(auto_cast glfw_bindings.CreateWindowSurface(auto_cast ctx.instance, win, nil, auto_cast &surface));
-	// this needs to be done first, as we need to get a present queue that can
-	// present to this surface
-
-	present_queue_family_idx :u32;
-	present_queue_found := false;
-
-	for idx in 0..<ctx.queue_family_count {
-		present_support :vk.VkBool32 = false;
-		vk.vkGetPhysicalDeviceSurfaceSupportKHR(ctx.physical_device, idx, surface, &present_support);
-		if present_support {
-			present_queue_family_idx = idx;
-			present_queue_found = true;
+	if !ctx.present_queue_found {
+		for idx in 0..<ctx.queue_family_count {
+			present_support :vk.VkBool32 = false;
+			vk.vkGetPhysicalDeviceSurfaceSupportKHR(ctx.physical_device, idx, surface, &present_support);
+			if present_support {
+				ctx.present_queue_family_idx = idx;
+				ctx.present_queue_found = true;
+			}
 		}
+		assert(ctx.present_queue_found);
+
+		present_queue := &ctx.present_queue;
+		vk.vkGetDeviceQueue(ctx.device, ctx.present_queue_family_idx, 0, present_queue);
 	}
-	assert(present_queue_found);
 
-	graphics_queue :vk.VkQueue = ---;
-	vk.vkGetDeviceQueue(ctx.device, ctx.graphics_queue_family_idx, 0, &graphics_queue);
-
-	present_queue :vk.VkQueue = ---;
-	vk.vkGetDeviceQueue(ctx.device, present_queue_family_idx, 0, &present_queue);
 
 
 	// pre swapchain ========================
@@ -110,10 +105,10 @@ main :: proc() {
 	vk.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.physical_device, surface, &capabilities);
 
 
-	assert(window_size.x >= capabilities.minImageExtent.width);
-	assert(window_size.x <= capabilities.maxImageExtent.width);
-	assert(window_size.y >= capabilities.minImageExtent.height);
-	assert(window_size.y <= capabilities.maxImageExtent.height);
+	assert(size.x >= capabilities.minImageExtent.width);
+	assert(size.x <= capabilities.maxImageExtent.width);
+	assert(size.y >= capabilities.minImageExtent.height);
+	assert(size.y <= capabilities.maxImageExtent.height);
 
 	image_count :u32 = capabilities.minImageCount + 1;
 	if (capabilities.maxImageCount != 0) {
@@ -123,12 +118,34 @@ main :: proc() {
 
 
 	p_queue_indices := []u32 {};
-	if (ctx.graphics_queue_family_idx != present_queue_family_idx) {
-		p_queue_indices = {ctx.graphics_queue_family_idx, present_queue_family_idx};
+	if (ctx.graphics_queue_family_idx != ctx.present_queue_family_idx) {
+		p_queue_indices = {ctx.graphics_queue_family_idx, ctx.present_queue_family_idx};
 	}
 
-	my_swapchain := create_swapchain(surface, window_size, image_count, desired_format.format, desired_format.colorSpace, p_queue_indices, present_mode);
+	window.swapchain = ab.create_swapchain(surface, size, image_count, desired_format.format, desired_format.colorSpace, p_queue_indices, present_mode);
 
+
+
+	return window;
+}
+
+
+main :: proc() {
+	using ab;
+	engine_init();
+	ctx := get_context();
+
+	device := ctx.device;
+
+
+	//create window
+	glfw.window_hint(.CLIENT_API, int(glfw.NO_API));
+	window_size: [2]u32 = {800, 600};
+	win := create_window(window_size, "Window");
+	glfw.set_window_pos(win.handle, 200 - 1920, 200);
+
+	surface := win.surface;
+	my_swapchain := &win.swapchain;
 
 
 	Vertex :: struct {
@@ -184,7 +201,7 @@ main :: proc() {
 	descriptor_set_layout := create_mvp_descriptor_set_layout();
 	pipeline_layout := create_pipeline_layout({descriptor_set_layout}, {});
 
-	render_pass := create_render_pass(desired_format.format);
+	render_pass := create_render_pass(win.swapchain.create_info.imageFormat);
 
 
 	pipeline_cache_info := vk.VkPipelineCacheCreateInfo {};
@@ -437,8 +454,8 @@ main :: proc() {
 	vk.vkCreateCommandPool(device, &graphics_command_pool_info, nil, &graphics_command_pool);
 
 
-	fill_image_with_buffer(&my_image, &img_buffer, graphics_command_pool, graphics_queue);
-	fill_image_with_buffer(&my_font_image, &font_buffer, graphics_command_pool, graphics_queue);
+	fill_image_with_buffer(&my_image, &img_buffer, graphics_command_pool, ctx.graphics_queue);
+	fill_image_with_buffer(&my_font_image, &font_buffer, graphics_command_pool, ctx.graphics_queue);
 
 	my_image_view := create_image_view(my_image.handle, my_image.format);
 	my_font_image_view := create_image_view(my_font_image.handle, my_font_image.format);
@@ -510,7 +527,7 @@ main :: proc() {
 		my_mesh_draw2,
 	};
 
-	update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
+	update_command_buffers(my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
 
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
@@ -539,9 +556,9 @@ main :: proc() {
 
 	rot := f32(0);
 	// update loop
-	for !glfw.window_should_close(win) {
+	for !glfw.window_should_close(win.handle) {
 		glfw.poll_events();
-		cursor_x, cursor_y := glfw.get_cursor_pos(win);
+		cursor_x, cursor_y := glfw.get_cursor_pos(win.handle);
 
 
 		rot += 0.05;
@@ -574,7 +591,7 @@ main :: proc() {
 		submit_info.pSignalSemaphores = &render_finished_semaphore[current_frame];
 
 		vk.vkResetFences(device, 1, &in_flight_fences[current_frame]);
-		vk.CHECK(vk.vkQueueSubmit(graphics_queue, 1, &submit_info, in_flight_fences[current_frame]));
+		vk.CHECK(vk.vkQueueSubmit(ctx.graphics_queue, 1, &submit_info, in_flight_fences[current_frame]));
 
 		present_info := vk.VkPresentInfoKHR{};
 		present_info.sType = .VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -585,16 +602,16 @@ main :: proc() {
 		present_info.pImageIndices = &image_index;
 		present_info.pResults = nil;
 
-		present_result := vk.vkQueuePresentKHR(present_queue, &present_info);
+		present_result := vk.vkQueuePresentKHR(ctx.present_queue, &present_info);
 
 		if (present_result != .VK_SUCCESS) {
 			fmt.println("present result is:", present_result);
 
 			vk.vkDeviceWaitIdle(device);
 
-			width, height := glfw.get_framebuffer_size(win);
+			width, height := glfw.get_framebuffer_size(win.handle);
 
-			recreate_swapchain(&my_swapchain, {u32(width), u32(height)});
+			recreate_swapchain(my_swapchain, {u32(width), u32(height)});
 
 			for idx in 0..< my_swapchain.image_count {
 				framebuffers[idx] = create_framebuffer(render_pass, {my_swapchain.image_views[idx]}, {my_swapchain.size.x, my_swapchain.size.y});
@@ -610,7 +627,7 @@ main :: proc() {
 			buffer_sync(&uniform_buffer);
 			buffer_sync(&uniform_buffer2);
 
-			update_command_buffers(&my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
+			update_command_buffers(my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
 
 		}
 

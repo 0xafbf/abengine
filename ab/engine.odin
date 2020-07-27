@@ -14,6 +14,11 @@ Context :: struct {
 	physical_device: vk.VkPhysicalDevice,
 	queue_family_count: u32,
 	graphics_queue_family_idx: u32,
+	present_queue_family_idx: u32,
+
+	graphics_queue: vk.VkQueue,
+	present_queue: vk.VkQueue,
+	present_queue_found: bool,
 };
 
 ab_context: Context;
@@ -216,6 +221,9 @@ engine_init :: proc() {
 	assert(graphics_queue_found);
 
 
+	graphics_queue := &ctx.graphics_queue;
+	vk.vkGetDeviceQueue(ctx.device, ctx.graphics_queue_family_idx, 0, graphics_queue);
+
 }
 
 
@@ -238,6 +246,8 @@ create_device :: proc (
 
 	ctx := get_context();
 	vk.CHECK(vk.vkCreateDevice(ctx.physical_device, &device_info, nil, &device));
+
+
 	return device;
 }
 
