@@ -13,11 +13,7 @@ import glfw_bindings "shared:odin-glfw/bindings"
 import vk "shared:odin-vulkan"
 
 import "shared:odin-stb/stbi"
-import "shared:odin-stb/stbtt"
-
 import "ab"
-
-
 
 
 main :: proc() {
@@ -88,14 +84,13 @@ main :: proc() {
 	descriptor_set_layout := create_mvp_descriptor_set_layout();
 	pipeline_layout := create_pipeline_layout({descriptor_set_layout}, {});
 
-	render_pass := create_render_pass(win.swapchain.create_info.imageFormat);
 
 
 
 	color_blend_info :PipelineBlendState = ---;
 	opaque_blend_info(&color_blend_info);
 	shader_stages := create_shader_stages("content/shader_4.vert.spv", "content/shader_4.frag.spv");
-	pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &vertex_info, pipeline_layout, shader_stages[:], &color_blend_info);
+	pipeline := create_graphic_pipeline(pipeline_cache, my_swapchain.render_pass, &vertex_info, pipeline_layout, shader_stages[:], &color_blend_info);
 
 
 	rect_shader_stages := create_shader_stages("content/shader_rect.vert.spv", "content/shader_rect.frag.spv");
@@ -120,14 +115,7 @@ main :: proc() {
 
 	mix_color_blend_info :PipelineBlendState = ---;
 	mix_blend_info(&mix_color_blend_info);
-	rect_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &rect_vertex_info, rect_pipeline_layout, rect_shader_stages[:], &mix_color_blend_info);
-
-
-
-	framebuffers := make([]vk.VkFramebuffer, my_swapchain.image_count);
-	for idx in 0..< my_swapchain.image_count {
-		framebuffers[idx] = create_framebuffer(render_pass, {my_swapchain.image_views[idx]}, my_swapchain.size);
-	}
+	rect_pipeline := create_graphic_pipeline(pipeline_cache, my_swapchain.render_pass, &rect_vertex_info, rect_pipeline_layout, rect_shader_stages[:], &mix_color_blend_info);
 
 
 	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
@@ -197,7 +185,7 @@ main :: proc() {
 
 
 
-	text_data := create_char_draw_data(render_pass);
+	text_data := create_char_draw_data(my_swapchain.render_pass);
 
 
 	rect_pipeline2 := Pipeline {rect_pipeline, rect_pipeline_layout};
@@ -264,7 +252,7 @@ main :: proc() {
 		my_mesh_draw2,
 	};
 
-	update_command_buffers(my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
+	update_command_buffers(my_swapchain, command_buffers, my_swapchain.framebuffers, to_draw, my_swapchain.render_pass, &ui_draw_commands);
 
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
@@ -347,12 +335,7 @@ main :: proc() {
 			vk.vkDeviceWaitIdle(ctx.device);
 
 			width, height := glfw.get_framebuffer_size(win.handle);
-
 			recreate_swapchain(my_swapchain, {u32(width), u32(height)});
-
-			for idx in 0..< my_swapchain.image_count {
-				framebuffers[idx] = create_framebuffer(render_pass, {my_swapchain.image_views[idx]}, {my_swapchain.size.x, my_swapchain.size.y});
-			}
 
 			viewport_data.right = f32(my_swapchain.size.x);
 			viewport_data.bottom = f32(my_swapchain.size.y);
@@ -364,7 +347,7 @@ main :: proc() {
 			buffer_sync(&uniform_buffer);
 			buffer_sync(&uniform_buffer2);
 
-			update_command_buffers(my_swapchain, command_buffers, framebuffers, to_draw, render_pass, &ui_draw_commands);
+			update_command_buffers(my_swapchain, command_buffers, my_swapchain.framebuffers, to_draw, my_swapchain.render_pass, &ui_draw_commands);
 
 		}
 

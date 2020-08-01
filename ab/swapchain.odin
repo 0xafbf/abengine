@@ -5,12 +5,14 @@ import vk "shared:odin-vulkan"
 MAX_SWAPCHAIN_IMAGES :: 4;
 
 Swapchain :: struct {
-	size:        [2]u32,
-	handle:      vk.VkSwapchainKHR,
-	image_count: u32,
-	create_info: vk.VkSwapchainCreateInfoKHR,
-	images:      [MAX_SWAPCHAIN_IMAGES]vk.VkImage,
-	image_views: [MAX_SWAPCHAIN_IMAGES]vk.VkImageView,
+	size:         [2]u32,
+	handle:       vk.VkSwapchainKHR,
+	image_count:  u32,
+	create_info:  vk.VkSwapchainCreateInfoKHR,
+	images:       [MAX_SWAPCHAIN_IMAGES]vk.VkImage,
+	image_views:  [MAX_SWAPCHAIN_IMAGES]vk.VkImageView,
+	framebuffers: []vk.VkFramebuffer,
+	render_pass:  vk.VkRenderPass,
 };
 
 
@@ -55,6 +57,8 @@ create_swapchain :: proc(
 	swapchain_info.clipped = true;
 	swapchain_info.oldSwapchain = nil;
 
+	swapchain.render_pass = create_render_pass(format);
+	swapchain.framebuffers = make([]vk.VkFramebuffer, image_count);
 
 	recreate_swapchain(&swapchain, {swapchain.size.x, swapchain.size.y});
 
@@ -77,6 +81,11 @@ recreate_swapchain :: proc(swapchain: ^Swapchain, extent: [2]u32) {
 	for idx in 0..<swapchain.image_count {
 		swapchain.image_views[idx] = create_image_view(swapchain.images[idx], swapchain.create_info.imageFormat);
 	}
+
+	for idx in 0..< swapchain.image_count {
+		swapchain.framebuffers[idx] = create_framebuffer(swapchain.render_pass, {swapchain.image_views[idx]}, swapchain.size);
+	}
+
 }
 
 create_render_pass :: proc (
