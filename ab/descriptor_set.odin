@@ -182,3 +182,57 @@ update_binding_img :: proc (
 	vk.vkUpdateDescriptorSets(ctx.device, 1, &descriptor_write, 0, nil);
 }
 
+
+viewport_descriptor_layout: vk.VkDescriptorSetLayout;
+font_descriptor_layout :vk.VkDescriptorSetLayout;
+descriptor_pool: vk.VkDescriptorPool;
+pipeline_cache: vk.VkPipelineCache;
+graphics_command_pool: vk.VkCommandPool;
+
+init_generic_descriptor_set_layouts :: proc() {
+	viewport_descriptor_layout = create_viewport_descriptor_set_layout(binding=0);
+	font_descriptor_layout = create_font_descriptor_set_layout(binding=0);
+
+
+
+	descriptor_pool_size := vk.VkDescriptorPoolSize {};
+	descriptor_pool_size.type = .VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	descriptor_pool_size.descriptorCount = 100;
+
+	descriptor_pool_size2 := vk.VkDescriptorPoolSize {};
+	descriptor_pool_size2.type = .VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	descriptor_pool_size2.descriptorCount = 100;
+
+	descriptor_pool_sizes := []vk.VkDescriptorPoolSize {
+		descriptor_pool_size,
+		descriptor_pool_size2,
+	};
+
+	descriptor_pool_info := vk.VkDescriptorPoolCreateInfo {};
+	descriptor_pool_info.sType = .VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	// descriptor_pool_info.pNext = //: rawptr,
+	// descriptor_pool_info.flags = //: VkDescriptorPoolCreateFlags,
+	descriptor_pool_info.maxSets = 100;
+	descriptor_pool_info.poolSizeCount = u32(len(descriptor_pool_sizes));
+	descriptor_pool_info.pPoolSizes = &descriptor_pool_sizes[0];
+
+	ctx := get_context();
+	vk.CHECK(vk.vkCreateDescriptorPool(ctx.device, &descriptor_pool_info, nil, &descriptor_pool));
+
+
+	pipeline_cache_info := vk.VkPipelineCacheCreateInfo {};
+	pipeline_cache_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+	pipeline_cache_info.initialDataSize = 0;
+	pipeline_cache_info.pInitialData = nil;
+
+	vk.CHECK(vk.vkCreatePipelineCache(ctx.device, &pipeline_cache_info, nil, &pipeline_cache));
+
+
+	graphics_command_pool_info := vk.VkCommandPoolCreateInfo {};
+	graphics_command_pool_info.sType = .VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	graphics_command_pool_info.queueFamilyIndex = ctx.graphics_queue_family_idx;
+	graphics_command_pool_info.flags = .VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+	vk.vkCreateCommandPool(ctx.device, &graphics_command_pool_info, nil, &graphics_command_pool);
+}
+

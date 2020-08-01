@@ -186,3 +186,32 @@ create_image_view :: proc(image :vk.VkImage, format: vk.VkFormat) -> vk.VkImageV
 	vk.CHECK(vk.vkCreateImageView(ctx.device, &image_view_info, nil, &img_view));
 	return img_view;
 }
+
+
+create_sampler :: proc() -> vk.VkSampler {
+	sampler_info := vk.VkSamplerCreateInfo {};
+	sampler_info.sType = .VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;//: VkStructureType,
+	// sampler_info.pNext = //: rawptr,
+	// sampler_info.flags = //: VkSamplerCreateFlags,
+	sampler_info.magFilter = .VK_FILTER_LINEAR;//: VkFilter,
+	sampler_info.minFilter = .VK_FILTER_LINEAR;//: VkFilter,
+	// sampler_info.mipmapMode = //: VkSamplerMipmapMode,
+	sampler_info.addressModeU = .VK_SAMPLER_ADDRESS_MODE_REPEAT;//: VkSamplerAddressMode,
+	sampler_info.addressModeV = .VK_SAMPLER_ADDRESS_MODE_REPEAT;//: VkSamplerAddressMode,
+	sampler_info.addressModeW = .VK_SAMPLER_ADDRESS_MODE_REPEAT;//: VkSamplerAddressMode,
+	sampler_info.mipLodBias = 0;//: f32,
+	sampler_info.anisotropyEnable = false;//: VkBool32,
+
+	sampler_info.maxAnisotropy = 1;//: f32,
+	sampler_info.compareEnable = false;//: VkBool32,
+	// sampler_info.compareOp = //: VkCompareOp,
+	sampler_info.minLod = 0;//: f32,
+	sampler_info.maxLod = 0;//: f32,
+	// sampler_info.borderColor = //: VkBorderColor,
+	sampler_info.unnormalizedCoordinates = false;//: VkBool32,
+
+	sampler :vk.VkSampler = ---;
+	ctx := get_context();
+	vk.CHECK(vk.vkCreateSampler(ctx.device, &sampler_info, nil, &sampler));
+	return sampler;
+}

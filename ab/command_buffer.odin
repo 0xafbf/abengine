@@ -50,7 +50,7 @@ update_command_buffers :: proc (
 	render_pass: vk.VkRenderPass,
 	ui_draw_commands: ^UI_Draw_Commands,
 ) {
-	buffer_sync(ui_draw_commands.text_data.buffer);
+	buffer_sync(&ui_draw_commands.text_data.buffer);
 
 	for idx in 0..< swapchain.image_count {
 		command_buffer := command_buffers[idx];

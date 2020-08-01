@@ -1,5 +1,6 @@
 package ab
 import "core:math/linalg"
+import "core:os"
 import vk "shared:odin-vulkan"
 import "shared:odin-stb/stbtt"
 
@@ -17,7 +18,8 @@ Char_Draw_Data_GEN :: struct(max_char_count: u32, max_string_count: u32) {
 	substrings: [max_string_count] Char_Substring,
 	char_count: u32,
 	substring_count: uint,
-	buffer :^Buffer,
+	buffer :Buffer,
+	image: Image,
 	pipeline: Pipeline,
 	font_size: [2]int,
 	font_descriptor: vk.VkDescriptorSet, // to keep texture
@@ -148,3 +150,107 @@ ui_collect_commands :: proc (command_buffer: vk.VkCommandBuffer, ui_commands: ^U
 		}
 	}
 }
+
+
+create_char_draw_data :: proc (render_pass: vk.VkRenderPass) -> ^Char_Draw_Data {
+	text_data := new(Char_Draw_Data);
+	text_data.char_count = 0;
+	text_data.substring_count = 0;
+
+	text_data.font_size = [2]int {512, 512};
+
+	font_pixels := make([]u8, text_data.font_size.x * text_data.font_size.y);
+
+
+	text_data.font_first_idx = 32; // space
+	num_chars := 95; // from 32 to 126
+
+
+	char_file, ss := os.read_entire_file("content/fonts/Roboto-Regular.ttf");
+	assert(ss);
+
+	char_data, result := stbtt.bake_font_bitmap(
+		char_file, 0, // data, offset
+		24, //pixel_height
+		font_pixels, //storage
+		int(text_data.font_size.x), int(text_data.font_size.y),
+		text_data.font_first_idx, num_chars,
+	);
+
+	text_data.char_data = char_data;
+
+	text_data.buffer = make_buffer_array(text_data.char_quads[:], .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+
+
+	font_buffer := make_buffer(&font_pixels[0], len(font_pixels), .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+
+	text_data.image = create_image(u32(text_data.font_size.x), u32(text_data.font_size.y), .VK_FORMAT_R8_UNORM);
+	ctx := get_context();
+	fill_image_with_buffer(&text_data.image, &font_buffer, graphics_command_pool, ctx.graphics_queue);
+
+	my_font_image_view := create_image_view(text_data.image.handle, text_data.image.format);
+
+
+	text_font_descriptor_set := alloc_descriptor_sets(descriptor_pool, font_descriptor_layout, 1);
+	text_data.font_descriptor = text_font_descriptor_set[0];
+
+	sampler := create_sampler();
+	usage :vk.VkImageLayout = .VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	update_binding(text_font_descriptor_set[0], 0, sampler, my_font_image_view, usage);
+
+
+	text_instance_binding := vk.VkVertexInputBindingDescription {};
+	text_instance_binding.binding = 0;
+	text_instance_binding.stride = size_of(stbtt.Aligned_Quad);
+	text_instance_binding.inputRate = .VK_VERTEX_INPUT_RATE_INSTANCE;
+
+	text_attrib_desc_0 := vk.VkVertexInputAttributeDescription {};
+	text_attrib_desc_0.binding = 0;
+	text_attrib_desc_0.location = 0;
+	text_attrib_desc_0.format = .VK_FORMAT_R32G32B32A32_SFLOAT;
+	text_attrib_desc_0.offset = u32(offset_of(stbtt.Aligned_Quad, x0));
+
+	text_attrib_desc_1 := vk.VkVertexInputAttributeDescription {};
+	text_attrib_desc_1.binding = 0;
+	text_attrib_desc_1.location = 1;
+	text_attrib_desc_1.format = .VK_FORMAT_R32G32B32A32_SFLOAT;
+	text_attrib_desc_1.offset = u32(offset_of(stbtt.Aligned_Quad, x1));
+
+	text_attrib_descriptions := []vk.VkVertexInputAttributeDescription {
+		text_attrib_desc_0,
+		text_attrib_desc_1,
+	};
+
+
+
+	text_vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
+	text_vertex_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	text_vertex_info.vertexBindingDescriptionCount = 1;
+	text_vertex_info.pVertexBindingDescriptions = &text_instance_binding;
+	text_vertex_info.vertexAttributeDescriptionCount = u32(len(text_attrib_descriptions));
+	text_vertex_info.pVertexAttributeDescriptions = &text_attrib_descriptions[0];
+
+
+	text_shader_stages := create_shader_stages("content/shader_text.vert.spv", "content/shader_text.frag.spv");
+
+
+	text_push_constant_range := vk.VkPushConstantRange{};
+	text_push_constant_range.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
+	text_push_constant_range.offset = 0;//: u32,
+	text_push_constant_range.size = 16;//: u32,
+
+	text_pipeline_layout: = create_pipeline_layout({viewport_descriptor_layout, font_descriptor_layout}, {text_push_constant_range});
+
+
+	mix_color_blend_info :PipelineBlendState = ---;
+	mix_blend_info(&mix_color_blend_info);
+
+
+	text_pipeline := create_graphic_pipeline(pipeline_cache, render_pass, &text_vertex_info, text_pipeline_layout, text_shader_stages[:], &mix_color_blend_info);
+	text_data.pipeline = {text_pipeline, text_pipeline_layout};
+
+
+
+	return text_data;
+}
+
