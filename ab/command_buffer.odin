@@ -42,6 +42,21 @@ end_single_use_command_buffer :: proc(command_buffer: vk.VkCommandBuffer, queue:
 
 
 
+alloc_command_buffers :: proc (command_pool: vk.VkCommandPool, level: vk.VkCommandBufferLevel, count: u32) -> []vk.VkCommandBuffer {
+	command_buffer_info := vk.VkCommandBufferAllocateInfo {};
+	command_buffer_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	command_buffer_info.commandPool = command_pool;
+	command_buffer_info.level = .VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	command_buffer_info.commandBufferCount = count;
+
+	command_buffers := make([]vk.VkCommandBuffer, count);
+
+	ctx := get_context();
+	vk.vkAllocateCommandBuffers(ctx.device, &command_buffer_info, &command_buffers[0]);
+	return command_buffers;
+}
+
+
 update_command_buffers :: proc (
 	swapchain: ^Swapchain,
 	command_buffers: []vk.VkCommandBuffer,
@@ -75,7 +90,7 @@ update_command_buffers :: proc (
 			vk.vkCmdDrawIndexed(command_buffer, mesh_info.index_count, 1, 0, 0, 0);
 		}
 
-		ui_collect_commands(command_buffer, ui_draw_commands);
+		ui_collect_commands(command_buffer, ui_draw_commands, swapchain.viewport_descriptor);
 
 		end_command_buffer(command_buffer);
 	}

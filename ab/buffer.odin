@@ -15,6 +15,10 @@ make_buffer_array :: proc(arr: []$T, usage: vk.VkBufferUsageFlags) -> Buffer {
 	return make_buffer(raw_data(arr), size_of(T) * len(arr), usage);
 }
 
+make_buffer_ptr :: proc(ptr: ^$T, usage: vk.VkBufferUsageFlags) -> Buffer {
+	return make_buffer(ptr, size_of(T), usage);
+}
+
 make_buffer :: proc( in_data: rawptr,  size: int, usage: vk.VkBufferUsageFlags) -> Buffer {
 
 	my_buffer := Buffer {

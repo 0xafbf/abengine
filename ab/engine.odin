@@ -225,6 +225,9 @@ engine_init :: proc() {
 	vk.vkGetDeviceQueue(ctx.device, ctx.graphics_queue_family_idx, 0, graphics_queue);
 
 	init_generic_descriptor_set_layouts();
+
+	// depends on descriptor set layouts
+	init_ui();
 }
 
 

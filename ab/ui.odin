@@ -25,7 +25,6 @@ Char_Draw_Data_GEN :: struct(max_char_count: u32, max_string_count: u32) {
 	font_descriptor: vk.VkDescriptorSet, // to keep texture
 	font_first_idx: int,
 	char_data: []stbtt.Baked_Char,
-	viewport_descriptor: vk.VkDescriptorSet,
 };
 
 MAX_NUM_CHARS :: 16 * 1024; // I don't think I'll get over this soon
@@ -48,19 +47,63 @@ UI_Draw_Info :: union {
 	String_Draw_Info,
 };
 
+
+
+Viewport_Data :: struct {
+	left: f32,
+	right: f32,
+	top: f32,
+	bottom: f32,
+};
+
 UI_Draw_Commands :: struct {
 	draw_commands: []UI_Draw_Info,
 	text_data: ^Char_Draw_Data,
 	num_commands: uint,
-	rect_pipeline: ^Pipeline,
+	rect_pipeline: Pipeline,
 };
 
-create_draw_commands :: proc (count: uint, text_data: ^Char_Draw_Data, rect_pipeline: ^Pipeline) -> UI_Draw_Commands {
+
+rect_pipeline_layout: vk.VkPipelineLayout;
+
+init_ui :: proc() {
+
+
+	vert_push_constant_range := vk.VkPushConstantRange{};
+	vert_push_constant_range.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
+	vert_push_constant_range.offset = 0;//: u32,
+	vert_push_constant_range.size = 16;//: u32,
+
+	frag_push_constant_range := vk.VkPushConstantRange{};
+	frag_push_constant_range.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
+	frag_push_constant_range.offset = 16;//: u32,
+	frag_push_constant_range.size = 16;//: u32,
+
+	rect_pipeline_layout = create_pipeline_layout({viewport_descriptor_layout, font_descriptor_layout}, {vert_push_constant_range, frag_push_constant_range});
+
+}
+
+
+
+create_draw_commands :: proc (count: uint, render_pass: vk.VkRenderPass) -> UI_Draw_Commands {
 	draw_commands := UI_Draw_Commands{};
 	draw_commands.draw_commands = make([]UI_Draw_Info, count);
 	draw_commands.num_commands = 0;
-	draw_commands.text_data = text_data;
-	draw_commands.rect_pipeline = rect_pipeline;
+
+	draw_commands.text_data = create_char_draw_data(render_pass);
+
+	mix_color_blend_info :PipelineBlendState = ---;
+	mix_blend_info(&mix_color_blend_info);
+
+
+	rect_vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
+	rect_vertex_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	rect_vertex_info.vertexBindingDescriptionCount = 0;
+	rect_vertex_info.vertexAttributeDescriptionCount = 0;
+	rect_shader_stages := create_shader_stages("content/shader_rect.vert.spv", "content/shader_rect.frag.spv");
+
+	draw_commands.rect_pipeline = create_graphic_pipeline2(pipeline_cache, render_pass, &rect_vertex_info, rect_pipeline_layout, rect_shader_stages[:], &mix_color_blend_info);
+
 	return draw_commands;
 }
 
@@ -113,7 +156,7 @@ draw_string :: proc(text_data: ^Char_Draw_Data, in_string: string, in_pos: [2]f3
 }
 
 
-ui_collect_commands :: proc (command_buffer: vk.VkCommandBuffer, ui_commands: ^UI_Draw_Commands) {
+ui_collect_commands :: proc (command_buffer: vk.VkCommandBuffer, ui_commands: ^UI_Draw_Commands, viewport: vk.VkDescriptorSet) {
 
 	using ui_commands;
 
@@ -121,7 +164,7 @@ ui_collect_commands :: proc (command_buffer: vk.VkCommandBuffer, ui_commands: ^U
 	vk.vkCmdBindVertexBuffers(command_buffer, 0, 1, &text_data.buffer.handle, &b_offset);
 
 	descriptors := []vk.VkDescriptorSet {
-		text_data.viewport_descriptor,
+		viewport,
 		text_data.font_descriptor,
 	};
 

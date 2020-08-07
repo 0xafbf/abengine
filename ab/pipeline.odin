@@ -121,6 +121,27 @@ mix_blend_info :: proc(blend_state :^PipelineBlendState) {
 }
 
 
+create_graphic_pipeline2 :: proc(
+	pipeline_cache :vk.VkPipelineCache,
+	render_pass :vk.VkRenderPass,
+	vertex_info :^vk.VkPipelineVertexInputStateCreateInfo,
+	pipeline_layout :vk.VkPipelineLayout,
+	shader_stages :[]vk.VkPipelineShaderStageCreateInfo,
+	color_blend_info :^PipelineBlendState,
+) -> Pipeline {
+	pipeline := Pipeline {
+		layout = pipeline_layout,
+		pipeline = create_graphic_pipeline(
+			pipeline_cache,
+			render_pass,
+			vertex_info,
+			pipeline_layout,
+			shader_stages,
+			color_blend_info,
+		),
+	};
+	return pipeline;
+}
 create_graphic_pipeline :: proc(
 	pipeline_cache :vk.VkPipelineCache,
 	render_pass :vk.VkRenderPass,

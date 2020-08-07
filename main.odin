@@ -21,15 +21,14 @@ main :: proc() {
 	engine_init();
 	ctx := get_context();
 
-
 	//create window
-	glfw.window_hint(.CLIENT_API, int(glfw.NO_API));
-	window_size: [2]u32 = {800, 600};
-	win := create_window(window_size, "Window");
+	win := create_window({800, 600}, "Window");
 	glfw.set_window_pos(win.handle, 200 - 1920, 200);
 
 	my_swapchain := &win.swapchain;
 
+
+	// 3D Quad setup
 
 	Vertex :: struct {
 		position :[3]f32,
@@ -47,9 +46,6 @@ main :: proc() {
 	triangle_indices := [6]u32 {
 		0, 1, 2,  0, 2, 3
 	};
-
-
-
 
 	binding_description := vk.VkVertexInputBindingDescription {};
 	binding_description.binding = 0;
@@ -85,44 +81,13 @@ main :: proc() {
 	pipeline_layout := create_pipeline_layout({descriptor_set_layout}, {});
 
 
-
-
 	color_blend_info :PipelineBlendState = ---;
 	opaque_blend_info(&color_blend_info);
 	shader_stages := create_shader_stages("content/shader_4.vert.spv", "content/shader_4.frag.spv");
 	pipeline := create_graphic_pipeline(pipeline_cache, my_swapchain.render_pass, &vertex_info, pipeline_layout, shader_stages[:], &color_blend_info);
 
-
-	rect_shader_stages := create_shader_stages("content/shader_rect.vert.spv", "content/shader_rect.frag.spv");
-
-	rect_vertex_info := vk.VkPipelineVertexInputStateCreateInfo {};
-	rect_vertex_info.sType = .VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	rect_vertex_info.vertexBindingDescriptionCount = 0;
-	rect_vertex_info.vertexAttributeDescriptionCount = 0;
-
-	vert_push_constant_range := vk.VkPushConstantRange{};
-	vert_push_constant_range.stageFlags = .VK_SHADER_STAGE_VERTEX_BIT;//: VkShaderStageFlags,
-	vert_push_constant_range.offset = 0;//: u32,
-	vert_push_constant_range.size = 16;//: u32,
-
-	frag_push_constant_range := vk.VkPushConstantRange{};
-	frag_push_constant_range.stageFlags = .VK_SHADER_STAGE_FRAGMENT_BIT;//: VkShaderStageFlags,
-	frag_push_constant_range.offset = 16;//: u32,
-	frag_push_constant_range.size = 16;//: u32,
-
-	rect_pipeline_layout := create_pipeline_layout({viewport_descriptor_layout, font_descriptor_layout}, {vert_push_constant_range, frag_push_constant_range});
-
-
-	mix_color_blend_info :PipelineBlendState = ---;
-	mix_blend_info(&mix_color_blend_info);
-	rect_pipeline := create_graphic_pipeline(pipeline_cache, my_swapchain.render_pass, &rect_vertex_info, rect_pipeline_layout, rect_shader_stages[:], &mix_color_blend_info);
-
-
-	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
-	vertex_buffer := make_buffer(&triangle[0], size_of(triangle), .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-
-
 	descriptor_sets := ab.alloc_descriptor_sets(descriptor_pool, descriptor_set_layout, 2);
+
 
 
 
@@ -132,6 +97,12 @@ main :: proc() {
 		proj :linalg.Matrix4,
 	};
 
+	Transform :: struct {
+		translation: linalg.Vector3,
+		rotation: linalg.Quaternion,
+		scale: linalg.Vector3,
+	};
+
 
 	ubo := UniformBufferObject {};
 	ubo2 := UniformBufferObject {};
@@ -139,11 +110,13 @@ main :: proc() {
 	ubo.model = linalg.MATRIX4_IDENTITY;
 	ubo2.model = linalg.MATRIX4_IDENTITY;
 
-	t:= linalg.Vector3{0, 0.5, -2};
-	s:= linalg.Vector3{1,1,1};
-	r222:= linalg.quaternion_angle_axis(math.TAU / 15, {1, 0, 0});
+	t := Transform{
+		translation = {0, 0.5, -2},
+		scale = {1,1,1},
+		rotation = linalg.quaternion_angle_axis(math.TAU / 15, {1, 0, 0}),
+	};
 
-	ubo.view = linalg.matrix4_from_trs(t, r222, s);
+	ubo.view = linalg.matrix4_from_trs(t.translation, t.rotation, t.scale);
 	ubo2.view = ubo.view;
 
 	aspect := f32(my_swapchain.size.x) / f32(my_swapchain.size.y);
@@ -159,20 +132,6 @@ main :: proc() {
 	update_binding(descriptor_sets[1], 0, &uniform_buffer2);
 
 
-	Viewport_Data :: struct {
-		left: f32,
-		right: f32,
-		top: f32,
-		bottom: f32,
-	};
-	viewport_data := Viewport_Data {};
-	viewport_data.right = f32(my_swapchain.size.x);
-	viewport_data.bottom = f32(my_swapchain.size.y);
-	viewport_buffer := make_buffer(&viewport_data, size_of(viewport_data), .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
-
-
-	text_viewport_descriptor_set := ab.alloc_descriptor_sets(descriptor_pool, viewport_descriptor_layout, 1);
-	update_binding(text_viewport_descriptor_set[0], 0, &viewport_buffer);
 
 
 	img_x, img_y, img_channels : i32;
@@ -181,22 +140,6 @@ main :: proc() {
 	img_size := img_x * img_y * 4;
 	img_buffer := make_buffer(image_data, int(img_size), .VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
 	stbi.image_free(image_data);
-
-
-
-
-	text_data := create_char_draw_data(my_swapchain.render_pass);
-
-
-	rect_pipeline2 := Pipeline {rect_pipeline, rect_pipeline_layout};
-	ui_draw_commands := create_draw_commands(1000, text_data, &rect_pipeline2);
-
-	draw_quad(&ui_draw_commands, {0,0}, {300, 100}, {.7,.7,.7,.7});
-	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 30}, {0,0,0,1});
-
-	draw_quad(&ui_draw_commands, {0, 200}, {300, 100}, {.5,.5,.5,.5});
-	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 230}, {0,0,0,1});
-
 
 
 
@@ -216,18 +159,9 @@ main :: proc() {
 	update_binding(descriptor_sets[1], 1, sampler, my_image_view, usage);
 
 
-	text_data.viewport_descriptor = text_viewport_descriptor_set[0];
 
-	command_buffer_info := vk.VkCommandBufferAllocateInfo {};
-	command_buffer_info.sType = .VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	command_buffer_info.commandPool = graphics_command_pool;
-	command_buffer_info.level = .VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	command_buffer_info.commandBufferCount = my_swapchain.image_count;
-
-	command_buffers := make([]vk.VkCommandBuffer, my_swapchain.image_count);
-
-	vk.vkAllocateCommandBuffers(ctx.device, &command_buffer_info, &command_buffers[0]);
-
+	index_buffer := make_buffer(&triangle_indices[0], size_of(triangle_indices), .VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+	vertex_buffer := make_buffer(&triangle[0], size_of(triangle), .VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
 	my_mesh := Mesh_Info {
 		vertex_buffer = &vertex_buffer,
@@ -251,6 +185,25 @@ main :: proc() {
 		my_mesh_draw,
 		my_mesh_draw2,
 	};
+
+
+
+
+	// UI rect setup
+
+
+	ui_draw_commands := create_draw_commands(1000, my_swapchain.render_pass);
+
+	draw_quad(&ui_draw_commands, {0,0}, {300, 100}, {.7,.7,.7,.7});
+	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 30}, {0,0,0,1});
+
+	draw_quad(&ui_draw_commands, {0, 200}, {300, 100}, {.5,.5,.5,.5});
+	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 230}, {0,0,0,1});
+
+
+
+	command_buffers := alloc_command_buffers(graphics_command_pool, .VK_COMMAND_BUFFER_LEVEL_PRIMARY, my_swapchain.image_count);
+
 
 	update_command_buffers(my_swapchain, command_buffers, my_swapchain.framebuffers, to_draw, my_swapchain.render_pass, &ui_draw_commands);
 
@@ -337,9 +290,6 @@ main :: proc() {
 			width, height := glfw.get_framebuffer_size(win.handle);
 			recreate_swapchain(my_swapchain, {u32(width), u32(height)});
 
-			viewport_data.right = f32(my_swapchain.size.x);
-			viewport_data.bottom = f32(my_swapchain.size.y);
-			buffer_sync(&viewport_buffer);
 
 			aspect := f32(my_swapchain.size.x) / f32(my_swapchain.size.y);
 			ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);

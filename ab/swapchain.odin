@@ -13,6 +13,12 @@ Swapchain :: struct {
 	image_views:  [MAX_SWAPCHAIN_IMAGES]vk.VkImageView,
 	framebuffers: []vk.VkFramebuffer,
 	render_pass:  vk.VkRenderPass,
+
+
+
+	viewport_data: Viewport_Data,
+	viewport_buffer: Buffer,
+	viewport_descriptor: vk.VkDescriptorSet,
 };
 
 
@@ -60,6 +66,19 @@ create_swapchain :: proc(
 	swapchain.render_pass = create_render_pass(format);
 	swapchain.framebuffers = make([]vk.VkFramebuffer, image_count);
 
+
+
+
+
+	swapchain.viewport_data = Viewport_Data {};
+	swapchain.viewport_buffer = make_buffer_ptr(&swapchain.viewport_data, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+
+
+	ui_viewport_descriptor_set := alloc_descriptor_sets(descriptor_pool, viewport_descriptor_layout, 1);
+	update_binding(ui_viewport_descriptor_set[0], 0, &swapchain.viewport_buffer);
+	swapchain.viewport_descriptor = ui_viewport_descriptor_set[0];
+
+
 	recreate_swapchain(&swapchain, {swapchain.size.x, swapchain.size.y});
 
 	return swapchain;
@@ -86,6 +105,11 @@ recreate_swapchain :: proc(swapchain: ^Swapchain, extent: [2]u32) {
 		swapchain.framebuffers[idx] = create_framebuffer(swapchain.render_pass, {swapchain.image_views[idx]}, swapchain.size);
 	}
 
+
+
+	swapchain.viewport_data.right = f32(extent.x);
+	swapchain.viewport_data.bottom = f32(extent.y);
+	buffer_sync(&swapchain.viewport_buffer);
 }
 
 create_render_pass :: proc (
