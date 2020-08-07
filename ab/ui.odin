@@ -107,6 +107,28 @@ create_draw_commands :: proc (count: uint, render_pass: vk.VkRenderPass) -> UI_D
 	return draw_commands;
 }
 
+reset_draw_commands :: proc(draw_commands: ^UI_Draw_Commands) {
+	draw_commands.num_commands = 0;
+	draw_commands.text_data.char_count = 0;
+	draw_commands.text_data.substring_count = 0;
+}
+
+
+Rect :: struct {
+	left: f32,
+	top: f32,
+	right: f32,
+	bottom: f32,
+};
+
+is_inside_rect :: proc(position: [2]f32, using rect: ^Rect) -> bool {
+	return position.x >= left && position.x <= right && position.y >= top && position.y <= bottom;
+}
+
+draw_quad2 :: proc(cmd_list: ^UI_Draw_Commands, using rect: ^Rect, color: linalg.Vector4) {
+	draw_quad(cmd_list, {left, top}, {right-left, bottom-top}, color);
+}
+
 draw_quad :: proc(cmd_list: ^UI_Draw_Commands, position, size: linalg.Vector2, color: linalg.Vector4) {
 	draw_info := Quad_Draw_Info {
 		position = position,

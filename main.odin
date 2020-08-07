@@ -27,9 +27,9 @@ main :: proc() {
 
 	my_swapchain := &win.swapchain;
 
-
+	////////////////////////////////////////
 	// 3D Quad setup
-
+	/////////////////////////////////////////
 	Vertex :: struct {
 		position :[3]f32,
 		uv :[2]f32,
@@ -186,6 +186,7 @@ main :: proc() {
 		my_mesh_draw2,
 	};
 
+	/// end 3d quad
 
 
 
@@ -194,18 +195,9 @@ main :: proc() {
 
 	ui_draw_commands := create_draw_commands(1000, my_swapchain.render_pass);
 
-	draw_quad(&ui_draw_commands, {0,0}, {300, 100}, {.7,.7,.7,.7});
-	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 30}, {0,0,0,1});
-
-	draw_quad(&ui_draw_commands, {0, 200}, {300, 100}, {.5,.5,.5,.5});
-	draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 230}, {0,0,0,1});
-
-
 
 	command_buffers := alloc_command_buffers(graphics_command_pool, .VK_COMMAND_BUFFER_LEVEL_PRIMARY, my_swapchain.image_count);
 
-
-	update_command_buffers(my_swapchain, command_buffers, my_swapchain.framebuffers, to_draw, my_swapchain.render_pass, &ui_draw_commands);
 
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
@@ -233,10 +225,19 @@ main :: proc() {
 	current_frame := 0;
 
 	rot := f32(0);
+	frame_number := 0;
+
+
+	fps_builder := strings.make_builder(40);
+
 	// update loop
 	for !glfw.window_should_close(win.handle) {
 		glfw.poll_events();
 		cursor_x, cursor_y := glfw.get_cursor_pos(win.handle);
+
+	////////////////////////////////////////
+	// 3D Quad update
+	/////////////////////////////////////////
 
 
 		rot += 0.05;
@@ -245,6 +246,33 @@ main :: proc() {
 
 		ubo2.model = linalg.matrix4_rotate(-rot/3.5, {0, 1, 1});
 		buffer_sync(&uniform_buffer2);
+
+	/// end 3d quad
+
+
+		reset_draw_commands(&ui_draw_commands);
+		frame_number += 1;
+
+		strings.reset_builder(&fps_builder);
+		fps_string := fmt.sbprintf(&fps_builder, "{0} millones de gracias <3", frame_number);
+
+		r := Rect {0, 0, 300, 100};
+		color: linalg.Vector4 = {.7,.7,.7,.7};
+		if (is_inside_rect({f32(cursor_x), f32(cursor_y)}, &r)) {
+			color = {1,1,1,1};
+		}
+		draw_quad2(&ui_draw_commands, &r, color);
+		draw_string2(&ui_draw_commands, fps_string, {30, 30}, {0,0,0,1});
+
+		draw_quad(&ui_draw_commands, {0, 200}, {300, 100}, {.5,.5,.5,.5});
+		draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 230}, {0,0,0,1});
+
+		draw_quad(&ui_draw_commands, {0, 400}, {300, 100}, {.5,.5,.5,.5});
+		draw_string2(&ui_draw_commands, "Hola seguidores de Vicfred", {30, 430}, {0,0,0,1});
+
+
+		update_command_buffers(my_swapchain, command_buffers, my_swapchain.framebuffers, to_draw, my_swapchain.render_pass, &ui_draw_commands);
+
 
 		vk.vkWaitForFences(ctx.device, 1, &in_flight_fences[current_frame], true, bits.U64_MAX);
 
