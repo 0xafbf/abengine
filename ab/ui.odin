@@ -319,3 +319,20 @@ create_char_draw_data :: proc (render_pass: vk.VkRenderPass) -> ^Char_Draw_Data 
 	return text_data;
 }
 
+
+
+UI_State :: struct {
+	draw_commands: ^UI_Draw_Commands,
+	mouse: [2]f32,
+};
+draw_button :: proc (text: string, rect: Rect, using ui_state: ^UI_State) -> bool {
+	rect_copy := rect;
+	color: linalg.Vector4 = {.7,.7,.7,.7};
+	if (is_inside_rect(ui_state.mouse, &rect_copy)) {
+		color = {1,1,1,1};
+	}
+	draw_quad2(draw_commands, &rect_copy, color);
+	TEXT_OFFSET :: [2]f32 {20, 20};
+	draw_string2(draw_commands, text, {rect.left+TEXT_OFFSET.x, rect.top + TEXT_OFFSET.y}, {0,0,0,1});
+	return false;
+}

@@ -13,13 +13,14 @@ Swapchain :: struct {
 	image_views:  [MAX_SWAPCHAIN_IMAGES]vk.VkImageView,
 	framebuffers: []vk.VkFramebuffer,
 	render_pass:  vk.VkRenderPass,
-
-
-
-	viewport_data: Viewport_Data,
-	viewport_buffer: Buffer,
-	viewport_descriptor: vk.VkDescriptorSet,
+	viewport:     Viewport,
 };
+
+Viewport :: struct {
+	data: Viewport_Data,
+	buffer: Buffer,
+	descriptor: vk.VkDescriptorSet,
+}
 
 
 
@@ -70,13 +71,13 @@ create_swapchain :: proc(
 
 
 
-	swapchain.viewport_data = Viewport_Data {};
-	swapchain.viewport_buffer = make_buffer_ptr(&swapchain.viewport_data, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+	swapchain.viewport.data = Viewport_Data {};
+	swapchain.viewport.buffer = make_buffer_ptr(&swapchain.viewport.data, .VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 
 	ui_viewport_descriptor_set := alloc_descriptor_sets(descriptor_pool, viewport_descriptor_layout, 1);
-	update_binding(ui_viewport_descriptor_set[0], 0, &swapchain.viewport_buffer);
-	swapchain.viewport_descriptor = ui_viewport_descriptor_set[0];
+	update_binding(ui_viewport_descriptor_set[0], 0, &swapchain.viewport.buffer);
+	swapchain.viewport.descriptor = ui_viewport_descriptor_set[0];
 
 
 	recreate_swapchain(&swapchain, {swapchain.size.x, swapchain.size.y});
@@ -107,9 +108,9 @@ recreate_swapchain :: proc(swapchain: ^Swapchain, extent: [2]u32) {
 
 
 
-	swapchain.viewport_data.right = f32(extent.x);
-	swapchain.viewport_data.bottom = f32(extent.y);
-	buffer_sync(&swapchain.viewport_buffer);
+	swapchain.viewport.data.right = f32(extent.x);
+	swapchain.viewport.data.bottom = f32(extent.y);
+	buffer_sync(&swapchain.viewport.buffer);
 }
 
 create_render_pass :: proc (

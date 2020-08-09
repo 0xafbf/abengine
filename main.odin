@@ -195,12 +195,13 @@ main :: proc() {
 
 	ui_draw_commands := create_draw_commands(1000, my_swapchain.render_pass);
 
-
-	command_buffers := alloc_command_buffers(graphics_command_pool, .VK_COMMAND_BUFFER_LEVEL_PRIMARY, my_swapchain.image_count);
-
-
+	ui_state := UI_State {
+		draw_commands = &ui_draw_commands,
+	};
 
 	MAX_FRAMES_IN_FLIGHT :: 2;
+	command_buffers := alloc_command_buffers(graphics_command_pool, .VK_COMMAND_BUFFER_LEVEL_PRIMARY, MAX_FRAMES_IN_FLIGHT);
+
 
 	image_available_semaphore := [MAX_FRAMES_IN_FLIGHT]vk.VkSemaphore {};
 	render_finished_semaphore := [MAX_FRAMES_IN_FLIGHT]vk.VkSemaphore {};
@@ -234,6 +235,7 @@ main :: proc() {
 	for !glfw.window_should_close(win.handle) {
 		glfw.poll_events();
 		cursor_x, cursor_y := glfw.get_cursor_pos(win.handle);
+		ui_state.mouse = {f32(cursor_x), f32(cursor_y)};
 
 	////////////////////////////////////////
 	// 3D Quad update
@@ -254,31 +256,18 @@ main :: proc() {
 		frame_number += 1;
 
 		strings.reset_builder(&fps_builder);
-		fps_string := fmt.sbprintf(&fps_builder, "{0} millones de gracias <3", frame_number);
+		fps_string := fmt.sbprintf(&fps_builder, "{0} frames passed", frame_number);
 
-		r := Rect {0, 0, 300, 100};
-		color: linalg.Vector4 = {.7,.7,.7,.7};
-		if (is_inside_rect({f32(cursor_x), f32(cursor_y)}, &r)) {
-			color = {1,1,1,1};
-		}
-		draw_quad2(&ui_draw_commands, &r, color);
-		draw_string2(&ui_draw_commands, fps_string, {30, 30}, {0,0,0,1});
+		draw_button(fps_string, {0, 0, 200, 50}, &ui_state);
 
-		draw_quad(&ui_draw_commands, {0, 200}, {300, 100}, {.5,.5,.5,.5});
-		draw_string2(&ui_draw_commands, "mi texto de prueba", {30, 230}, {0,0,0,1});
-
-		draw_quad(&ui_draw_commands, {0, 400}, {300, 100}, {.5,.5,.5,.5});
-		draw_string2(&ui_draw_commands, "Hola seguidores de Vicfred", {30, 430}, {0,0,0,1});
-
-
-		update_command_buffers(my_swapchain, command_buffers, my_swapchain.framebuffers, to_draw, my_swapchain.render_pass, &ui_draw_commands);
 
 
 		vk.vkWaitForFences(ctx.device, 1, &in_flight_fences[current_frame], true, bits.U64_MAX);
+		update_command_buffers(&my_swapchain.viewport, command_buffers[current_frame:current_frame+1], my_swapchain.framebuffers[current_frame:current_frame+1], to_draw, my_swapchain.render_pass, &ui_draw_commands);
+
 
 		image_index :u32 = ---;
 		vk.vkAcquireNextImageKHR(ctx.device, my_swapchain.handle, bits.U64_MAX, image_available_semaphore[current_frame], nil, &image_index);
-
 
 		if (image_fences[image_index] != nil) {
 			vk.vkWaitForFences(ctx.device, 1, &image_fences[image_index], true, bits.U64_MAX);
@@ -324,9 +313,6 @@ main :: proc() {
 			ubo2.proj = ubo.proj;
 			buffer_sync(&uniform_buffer);
 			buffer_sync(&uniform_buffer2);
-
-			update_command_buffers(my_swapchain, command_buffers, my_swapchain.framebuffers, to_draw, my_swapchain.render_pass, &ui_draw_commands);
-
 		}
 
 		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;

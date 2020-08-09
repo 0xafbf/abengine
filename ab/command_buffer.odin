@@ -58,7 +58,7 @@ alloc_command_buffers :: proc (command_pool: vk.VkCommandPool, level: vk.VkComma
 
 
 update_command_buffers :: proc (
-	swapchain: ^Swapchain,
+	viewport: ^Viewport,
 	command_buffers: []vk.VkCommandBuffer,
 	framebuffers: []vk.VkFramebuffer,
 	mesh_draw_infos: []Mesh_Draw_Info,
@@ -67,10 +67,10 @@ update_command_buffers :: proc (
 ) {
 	buffer_sync(&ui_draw_commands.text_data.buffer);
 
-	for idx in 0..< swapchain.image_count {
+	for idx in 0..< len(command_buffers) {
 		command_buffer := command_buffers[idx];
 		framebuffer := framebuffers[idx];
-		begin_command_buffer(command_buffer, render_pass, framebuffer, swapchain);
+		begin_command_buffer(command_buffer, render_pass, framebuffer, viewport);
 
 		last_mesh_geom :^Buffer;
 
@@ -90,7 +90,7 @@ update_command_buffers :: proc (
 			vk.vkCmdDrawIndexed(command_buffer, mesh_info.index_count, 1, 0, 0, 0);
 		}
 
-		ui_collect_commands(command_buffer, ui_draw_commands, swapchain.viewport_descriptor);
+		ui_collect_commands(command_buffer, ui_draw_commands, viewport.descriptor);
 
 		end_command_buffer(command_buffer);
 	}
@@ -99,7 +99,7 @@ begin_command_buffer :: proc(
 	command_buffer :vk.VkCommandBuffer,
 	render_pass :vk.VkRenderPass,
 	framebuffer :vk.VkFramebuffer,
-	swapchain: ^Swapchain,
+	viewport: ^Viewport,
 ) {
 
 	command_buffer_begin_info := vk.VkCommandBufferBeginInfo {};
@@ -114,32 +114,34 @@ begin_command_buffer :: proc(
 	clear_color.color.float32 = [4]f32 {0., 0., 0.2, 1.};
 	render_pass_begin_info.clearValueCount = 1;
 	render_pass_begin_info.pClearValues = &clear_color;
-
-
-	scissor := vk.VkRect2D {};
-	scissor.extent = {swapchain.size.x, swapchain.size.y};
-
 	render_pass_begin_info.framebuffer = framebuffer;
-	render_pass_begin_info.renderArea.extent = scissor.extent;
+
+	width := viewport.data.right - viewport.data.left;
+	height := viewport.data.bottom - viewport.data.top;
+	render_extent := vk.VkExtent2D {u32(width), u32(height)};
+	render_pass_begin_info.renderArea.extent = render_extent;
 
 
 	vk.vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, .VK_SUBPASS_CONTENTS_INLINE);
 
-	viewport := vk.VkViewport {};
-	viewport.x = 0;
-	viewport.y = 0;
-	viewport.width = f32(swapchain.size.x);
-	viewport.height = f32(swapchain.size.y);
-	viewport.minDepth = 0;
-	viewport.maxDepth = 1;
 
-	vk.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+	vk_viewport := vk.VkViewport {};
+	vk_viewport.x = 0;
+	vk_viewport.y = 0;
+	vk_viewport.width = f32(width);
+	vk_viewport.height = f32(height);
+	vk_viewport.minDepth = 0;
+	vk_viewport.maxDepth = 1;
+
+	vk.vkCmdSetViewport(command_buffer, 0, 1, &vk_viewport);
+
+	scissor := vk.VkRect2D {};
+	scissor.extent = render_extent;
+
 	vk.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
 }
+
 end_command_buffer :: proc(command_buffer: vk.VkCommandBuffer) {
-
-
 	vk.vkCmdEndRenderPass(command_buffer);
 	vk.CHECK(vk.vkEndCommandBuffer(command_buffer));
 }

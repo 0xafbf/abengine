@@ -8,7 +8,7 @@ Buffer :: struct {
 	handle :vk.VkBuffer,
 	memory :vk.VkDeviceMemory,
 	size :u64,
-	data :rawptr
+	data :rawptr,
 };
 
 make_buffer_array :: proc(arr: []$T, usage: vk.VkBufferUsageFlags) -> Buffer {
