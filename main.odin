@@ -234,8 +234,16 @@ main :: proc() {
 	// update loop
 	for !glfw.window_should_close(win.handle) {
 		glfw.poll_events();
-		cursor_x, cursor_y := glfw.get_cursor_pos(win.handle);
-		ui_state.mouse = {f32(cursor_x), f32(cursor_y)};
+		ui_poll :: proc(ui_state: ^UI_State, window: ^Window) {
+			cursor_x, cursor_y := glfw.get_cursor_pos(window.handle);
+			ui_state.mouse = {f32(cursor_x), f32(cursor_y)};
+			ui_state.last_mouse_pressed = ui_state.mouse_pressed;
+
+			mouse_state := glfw.get_mouse_button(window.handle, .MOUSE_BUTTON_1);
+			ui_state.mouse_pressed = (mouse_state == .PRESS);
+		}
+
+		ui_poll(&ui_state, &win);
 
 	////////////////////////////////////////
 	// 3D Quad update
@@ -253,13 +261,14 @@ main :: proc() {
 
 
 		reset_draw_commands(&ui_draw_commands);
-		frame_number += 1;
+		// frame_number += 1;
 
 		strings.reset_builder(&fps_builder);
-		fps_string := fmt.sbprintf(&fps_builder, "{0} frames passed", frame_number);
+		fps_string := fmt.sbprintf(&fps_builder, "{0} times clicked", frame_number);
 
-		draw_button(fps_string, {0, 0, 200, 50}, &ui_state);
-
+		if (draw_button(fps_string, {0, 0, 200, 50}, &ui_state)) {
+			frame_number += 1;
+		}
 
 
 		vk.vkWaitForFences(ctx.device, 1, &in_flight_fences[current_frame], true, bits.U64_MAX);
