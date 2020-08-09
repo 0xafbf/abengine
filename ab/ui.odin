@@ -57,7 +57,7 @@ Viewport_Data :: struct {
 };
 
 UI_Draw_Commands :: struct {
-	draw_commands: []UI_Draw_Info,
+	draw_info: []UI_Draw_Info,
 	text_data: ^Char_Draw_Data,
 	num_commands: uint,
 	rect_pipeline: Pipeline,
@@ -87,7 +87,7 @@ init_ui :: proc() {
 
 create_draw_commands :: proc (count: uint, render_pass: vk.VkRenderPass) -> UI_Draw_Commands {
 	draw_commands := UI_Draw_Commands{};
-	draw_commands.draw_commands = make([]UI_Draw_Info, count);
+	draw_commands.draw_info = make([]UI_Draw_Info, count);
 	draw_commands.num_commands = 0;
 
 	draw_commands.text_data = create_char_draw_data(render_pass);
@@ -122,7 +122,7 @@ Rect :: struct {
 };
 
 is_inside_rect :: proc(position: [2]f32, using rect: ^Rect) -> bool {
-	return position.x >= left && position.x <= right && position.y >= top && position.y <= bottom;
+	return position.x > left && position.x < right && position.y > top && position.y < bottom;
 }
 
 draw_quad2 :: proc(cmd_list: ^UI_Draw_Commands, using rect: ^Rect, color: linalg.Vector4) {
@@ -135,16 +135,16 @@ draw_quad :: proc(cmd_list: ^UI_Draw_Commands, position, size: linalg.Vector2, c
 		size = size,
 		color = color,
 	};
-	cmd_list.draw_commands[cmd_list.num_commands] = draw_info;
+	cmd_list.draw_info[cmd_list.num_commands] = draw_info;
 	cmd_list.num_commands += 1;
 }
-draw_string2 :: proc(cmd_list: ^UI_Draw_Commands, text: string, position: linalg.Vector2, color: linalg.Vector4) {
+draw_string2 :: proc(cmd_list: ^UI_Draw_Commands, text: string, position: linalg.Vector2, color: linalg.Vector4 = {1,1,1,1}) {
 	substring_idx := draw_string(cmd_list.text_data, text, auto_cast position);
 	draw_info := String_Draw_Info {
 		substring_idx = substring_idx,
 		color = color,
 	};
-	cmd_list.draw_commands[cmd_list.num_commands] = draw_info;
+	cmd_list.draw_info[cmd_list.num_commands] = draw_info;
 	cmd_list.num_commands += 1;
 }
 
@@ -192,7 +192,7 @@ ui_collect_commands :: proc (command_buffer: vk.VkCommandBuffer, ui_commands: ^U
 
 
 	for item_idx in 0..<num_commands {
-		command := draw_commands[item_idx];
+		command := draw_info[item_idx];
 		switch c in command {
 		case Quad_Draw_Info:
 			vk.vkCmdBindDescriptorSets(command_buffer, .VK_PIPELINE_BIND_POINT_GRAPHICS, rect_pipeline.layout, 0, u32(len(descriptors)), raw_data(descriptors), 0, nil);
@@ -322,17 +322,21 @@ create_char_draw_data :: proc (render_pass: vk.VkRenderPass) -> ^Char_Draw_Data 
 
 
 UI_State :: struct {
-	draw_commands: ^UI_Draw_Commands,
+	using draw_commands: ^UI_Draw_Commands,
 	mouse: [2]f32,
 	mouse_pressed: bool,
 	last_mouse_pressed: bool,
 };
-draw_button :: proc (text: string, rect: Rect, using ui_state: ^UI_State) -> bool {
+draw_button :: proc (using ui_state: ^UI_State, text: string, rect: Rect) -> bool {
 	rect_copy := rect;
 	color: linalg.Vector4 = {.7,.7,.7,.7};
 	inside_rect := is_inside_rect(ui_state.mouse, &rect_copy);
 	if (inside_rect) {
-		color = {1,1,1,1};
+		if (ui_state.mouse_pressed) {
+			color = {1,1,1,1};
+		} else {
+			color = {.8, .8, .8, .8};
+		}
 	}
 	draw_quad2(draw_commands, &rect_copy, color);
 	TEXT_OFFSET :: [2]f32 {20, 20};

@@ -1,0 +1,2 @@
+
+* revisar por que se daña al reescalar

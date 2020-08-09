@@ -18,12 +18,20 @@ import "ab"
 
 main :: proc() {
 	using ab;
+
+	current_dir := os.get_current_directory();
+	fmt.println("current_dir:", current_dir);
+
+
+	search_path := fmt.aprintf("{0}/content/", current_dir);
+	entries := get_all_entries_in_directory(search_path);
+
 	engine_init();
 	ctx := get_context();
 
 	//create window
-	win := create_window({800, 600}, "Window");
-	glfw.set_window_pos(win.handle, 200 - 1920, 200);
+	win := create_window({1600, 900}, "Window");
+	glfw.set_window_pos(win.handle, 100 - 1920, 100);
 
 	my_swapchain := &win.swapchain;
 
@@ -266,8 +274,19 @@ main :: proc() {
 		strings.reset_builder(&fps_builder);
 		fps_string := fmt.sbprintf(&fps_builder, "{0} times clicked", frame_number);
 
-		if (draw_button(fps_string, {0, 0, 200, 50}, &ui_state)) {
+		if (draw_button(&ui_state, fps_string, {0, 0, 200, 50})) {
 			frame_number += 1;
+		}
+
+		for idx in 0..<len(entries) {
+			entry := &entries[idx];
+			VERTICAL_SIZE :: 30.;
+			start_position := linalg.Vector2 {0, f32(idx * VERTICAL_SIZE)};
+			// draw_quad(&ui_draw_commands, start_position, {600, VERTICAL_SIZE}, {0.2, 0.2, 0.2, 1.0});
+			// draw_string2(&ui_draw_commands, entry.name, start_position + {20, 20});
+			if (draw_button(&ui_state, entry.name, {start_position.x, start_position.y, start_position.x + 600,start_position.y + VERTICAL_SIZE})) {
+				fmt.println(entry.name);
+			}
 		}
 
 
