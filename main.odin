@@ -7,6 +7,7 @@ import "core:math/linalg"
 
 import "core:fmt"
 import "core:mem"
+import "core:path"
 import "core:strings"
 import glfw "shared:odin-glfw"
 import glfw_bindings "shared:odin-glfw/bindings"
@@ -19,22 +20,13 @@ import "ab"
 main :: proc() {
 	using ab;
 
-	current_dir := os.get_current_directory();
-	fmt.println("current_dir:", current_dir);
-
-
-	search_path := fmt.aprintf("{0}/content/", current_dir);
-	entries := get_all_entries_in_directory(search_path);
-
 	engine_init();
 	ctx := get_context();
 
 	//create window
 	win := create_window({1600, 900}, "Window");
 	glfw.set_window_pos(win.handle, 100 - 1920, 100);
-
-	my_swapchain := &win.swapchain;
-
+	
 	////////////////////////////////////////
 	// 3D Quad setup
 	/////////////////////////////////////////
@@ -92,7 +84,7 @@ main :: proc() {
 	color_blend_info :PipelineBlendState = ---;
 	opaque_blend_info(&color_blend_info);
 	shader_stages := create_shader_stages("content/shader_4.vert.spv", "content/shader_4.frag.spv");
-	pipeline := create_graphic_pipeline(pipeline_cache, my_swapchain.render_pass, &vertex_info, pipeline_layout, shader_stages[:], &color_blend_info);
+	pipeline := create_graphic_pipeline(pipeline_cache, win.swapchain.render_pass, &vertex_info, pipeline_layout, shader_stages[:], &color_blend_info);
 
 	descriptor_sets := ab.alloc_descriptor_sets(descriptor_pool, descriptor_set_layout, 2);
 
@@ -127,7 +119,8 @@ main :: proc() {
 	ubo.view = linalg.matrix4_from_trs(t.translation, t.rotation, t.scale);
 	ubo2.view = ubo.view;
 
-	aspect := f32(my_swapchain.size.x) / f32(my_swapchain.size.y);
+	size := win.swapchain.size;
+	aspect := f32(size.x) / f32(size.y);
 	ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
 	ubo2.proj = ubo.proj;
 	// ubo2.proj = linalg.matrix4_scale({1/aspect, -1, 1});
@@ -198,153 +191,114 @@ main :: proc() {
 
 
 
-	// UI rect setup
 
 
-	ui_draw_commands := create_draw_commands(1000, my_swapchain.render_pass);
-
-	ui_state := UI_State {
-		draw_commands = &ui_draw_commands,
-	};
-
-	MAX_FRAMES_IN_FLIGHT :: 2;
-	command_buffers := alloc_command_buffers(graphics_command_pool, .VK_COMMAND_BUFFER_LEVEL_PRIMARY, MAX_FRAMES_IN_FLIGHT);
-
-
-	image_available_semaphore := [MAX_FRAMES_IN_FLIGHT]vk.VkSemaphore {};
-	render_finished_semaphore := [MAX_FRAMES_IN_FLIGHT]vk.VkSemaphore {};
-	in_flight_fences := [MAX_FRAMES_IN_FLIGHT]vk.VkFence {};
-
-	image_fences := [10]vk.VkFence { };
-
-	semaphore_info := vk.VkSemaphoreCreateInfo {};
-	semaphore_info.sType = .VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-	fence_info := vk.VkFenceCreateInfo {};
-	fence_info.sType = .VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-	fence_info.flags = .VK_FENCE_CREATE_SIGNALED_BIT;
-
-	for idx in 0..< MAX_FRAMES_IN_FLIGHT {
-		vk.CHECK(vk.vkCreateSemaphore(ctx.device, &semaphore_info, nil, &image_available_semaphore[idx]));
-		vk.CHECK(vk.vkCreateSemaphore(ctx.device, &semaphore_info, nil, &render_finished_semaphore[idx]));
-
-		vk.CHECK(vk.vkCreateFence(ctx.device, &fence_info, nil, &in_flight_fences[idx]));
-	}
-
-	current_frame := 0;
 
 	rot := f32(0);
 	frame_number := 0;
 
-
 	fps_builder := strings.make_builder(40);
 
+
+	Browser_State :: struct {
+		visible: bool,
+		base_name: string,
+		full_path: string,
+		disk_entries: []ab.DiskEntry,
+		child_states: [dynamic]^Browser_State,
+	};
+	retrieve_browser_state :: proc(dir: string, name: string) -> ^Browser_State {
+		state := new(Browser_State);
+		state.base_name = name;
+		state.full_path = fmt.aprintf("{0}{1}/", dir, name);
+		state.disk_entries = get_all_entries_in_directory(state.full_path);
+		state.child_states = make([dynamic]^Browser_State, 0, 6);
+		fmt.println("retrieving state {0} {1}", state.full_path, len(state.disk_entries));
+		return state;
+	}
+
+	current_dir := os.get_current_directory();
+	fmt.println("current_dir:", current_dir);
+	dir := fmt.aprintf("{0}/", current_dir);
+
+	browser_state := retrieve_browser_state(dir, "content");
+
+	
 	// update loop
-	for !glfw.window_should_close(win.handle) {
-		glfw.poll_events();
-		ui_poll :: proc(ui_state: ^UI_State, window: ^Window) {
-			cursor_x, cursor_y := glfw.get_cursor_pos(window.handle);
-			ui_state.mouse = {f32(cursor_x), f32(cursor_y)};
-			ui_state.last_mouse_pressed = ui_state.mouse_pressed;
+	for loop_windows() {
 
-			mouse_state := glfw.get_mouse_button(window.handle, .MOUSE_BUTTON_1);
-			ui_state.mouse_pressed = (mouse_state == .PRESS);
-		}
-
-		ui_poll(&ui_state, &win);
-
-	////////////////////////////////////////
-	// 3D Quad update
-	/////////////////////////////////////////
-
-
+		// 3D Quad update
 		rot += 0.05;
 		ubo.model = linalg.matrix4_rotate(rot/10, {0, 0, 1});
 		buffer_sync(&uniform_buffer);
 
 		ubo2.model = linalg.matrix4_rotate(-rot/3.5, {0, 1, 1});
 		buffer_sync(&uniform_buffer2);
-
-	/// end 3d quad
-
-
-		reset_draw_commands(&ui_draw_commands);
-		// frame_number += 1;
+		/// end 3d quad
 
 		strings.reset_builder(&fps_builder);
 		fps_string := fmt.sbprintf(&fps_builder, "{0} times clicked", frame_number);
-
-		if (draw_button(&ui_state, fps_string, {0, 0, 200, 50})) {
+		ui_state := &win.swapchain.ui_state;
+		if (draw_button(ui_state, fps_string, {{0, 0}, {200, 50}})) {
 			frame_number += 1;
 		}
 
-		for idx in 0..<len(entries) {
-			entry := &entries[idx];
-			VERTICAL_SIZE :: 30.;
-			start_position := linalg.Vector2 {0, f32(idx * VERTICAL_SIZE)};
-			// draw_quad(&ui_draw_commands, start_position, {600, VERTICAL_SIZE}, {0.2, 0.2, 0.2, 1.0});
-			// draw_string2(&ui_draw_commands, entry.name, start_position + {20, 20});
-			if (draw_button(&ui_state, entry.name, {start_position.x, start_position.y, start_position.x + 600,start_position.y + VERTICAL_SIZE})) {
-				fmt.println(entry.name);
+		using linalg;
+
+		show_folder_contents :: proc (ui_state: ^UI_State, state: ^Browser_State) {
+			entries := state.disk_entries;
+
+			for idx in 0..<len(entries) {
+				entry := &entries[idx];
+				VERTICAL_SIZE :: 24.;
+				start_position := ui_state.cursor;
+				// draw_quad(&ui_draw_commands, start_position, {600, VERTICAL_SIZE}, {0.2, 0.2, 0.2, 1.0});
+				// draw_string2(&ui_draw_commands, entry.name, start_position + {20, 20});
+				
+				toggle_draw := draw_button(
+					ui_state, entry.name,
+					{ {start_position.x, start_position.y}, {300, VERTICAL_SIZE} }
+				);
+				draws := false;
+				child_draw: ^Browser_State = nil;
+				for child in state.child_states {
+					if (strings.compare(child.base_name, entry.name) == 0) {
+						if toggle_draw do child.visible = !child.visible;
+						draws = child.visible;
+						child_draw = child;
+					}
+				}
+				if toggle_draw {
+					draws = !draws;
+				}
+				
+			
+				if (entry.dir) {
+					color: linalg.Vector4 = draws ? {1, 0, 0, 1} : {0, 1, 0, 1};
+					draw_quad(ui_state, start_position + {4,4}, {16, 16}, color);
+				}
+				ui_state.cursor.y += VERTICAL_SIZE;
+				ui_state.cursor.x += 24;
+				if draws {
+					if (child_draw == nil) {
+						child_draw = retrieve_browser_state(state.full_path, entry.name);
+						child_draw.visible = true;
+						append(&state.child_states, child_draw);
+					}
+
+					show_folder_contents(ui_state, child_draw);
+				}
+				ui_state.cursor.x -= 24;
 			}
 		}
+		ui_state.cursor = {0,0};
+		show_folder_contents(ui_state, browser_state);
 
-
-		vk.vkWaitForFences(ctx.device, 1, &in_flight_fences[current_frame], true, bits.U64_MAX);
-		update_command_buffers(&my_swapchain.viewport, command_buffers[current_frame:current_frame+1], my_swapchain.framebuffers[current_frame:current_frame+1], to_draw, my_swapchain.render_pass, &ui_draw_commands);
-
-
-		image_index :u32 = ---;
-		vk.vkAcquireNextImageKHR(ctx.device, my_swapchain.handle, bits.U64_MAX, image_available_semaphore[current_frame], nil, &image_index);
-
-		if (image_fences[image_index] != nil) {
-			vk.vkWaitForFences(ctx.device, 1, &image_fences[image_index], true, bits.U64_MAX);
-		}
-		image_fences[image_index] = in_flight_fences[current_frame];
-
-		wait_stages :vk.VkPipelineStageFlags = .VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		submit_info := vk.VkSubmitInfo{};
-		submit_info.sType = .VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submit_info.waitSemaphoreCount = 1;
-		submit_info.pWaitSemaphores = &image_available_semaphore[current_frame];
-		submit_info.pWaitDstStageMask = &wait_stages;
-		submit_info.commandBufferCount = 1;
-		submit_info.pCommandBuffers = &command_buffers[image_index];
-		submit_info.signalSemaphoreCount = 1;
-		submit_info.pSignalSemaphores = &render_finished_semaphore[current_frame];
-
-		vk.vkResetFences(ctx.device, 1, &in_flight_fences[current_frame]);
-		vk.CHECK(vk.vkQueueSubmit(ctx.graphics_queue, 1, &submit_info, in_flight_fences[current_frame]));
-
-		present_info := vk.VkPresentInfoKHR{};
-		present_info.sType = .VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-		present_info.waitSemaphoreCount = 1;
-		present_info.pWaitSemaphores = &render_finished_semaphore[current_frame];
-		present_info.swapchainCount = 1;
-		present_info.pSwapchains = &my_swapchain.handle;
-		present_info.pImageIndices = &image_index;
-		present_info.pResults = nil;
-
-		present_result := vk.vkQueuePresentKHR(ctx.present_queue, &present_info);
-
-		if (present_result != .VK_SUCCESS) {
-			fmt.println("present result is:", present_result);
-
-			vk.vkDeviceWaitIdle(ctx.device);
-
-			width, height := glfw.get_framebuffer_size(win.handle);
-			recreate_swapchain(my_swapchain, {u32(width), u32(height)});
-
-
-			aspect := f32(my_swapchain.size.x) / f32(my_swapchain.size.y);
-			ubo.proj = linalg.matrix4_perspective(1.2, aspect, 0.1, 100);
-			ubo2.proj = ubo.proj;
-			buffer_sync(&uniform_buffer);
-			buffer_sync(&uniform_buffer2);
-		}
-
-		current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+		end_frame(win, to_draw);
 	}
 }
 
 
+Graph :: struct {
+	
+}

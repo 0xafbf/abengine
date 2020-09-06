@@ -85,8 +85,8 @@ init_ui :: proc() {
 
 
 
-create_draw_commands :: proc (count: uint, render_pass: vk.VkRenderPass) -> UI_Draw_Commands {
-	draw_commands := UI_Draw_Commands{};
+create_draw_commands :: proc (count: uint, render_pass: vk.VkRenderPass) -> ^UI_Draw_Commands {
+	draw_commands := new(UI_Draw_Commands);
 	draw_commands.draw_info = make([]UI_Draw_Info, count);
 	draw_commands.num_commands = 0;
 
@@ -115,18 +115,19 @@ reset_draw_commands :: proc(draw_commands: ^UI_Draw_Commands) {
 
 
 Rect :: struct {
-	left: f32,
-	top: f32,
-	right: f32,
-	bottom: f32,
+	position: [2]f32,
+	size: [2]f32,
 };
 
-is_inside_rect :: proc(position: [2]f32, using rect: ^Rect) -> bool {
-	return position.x > left && position.x < right && position.y > top && position.y < bottom;
+is_inside_rect :: proc(position: [2]f32, rect: ^Rect) -> bool {
+	return position.x > rect.position.x
+		&& position.x < (rect.position.x + rect.size.x)
+		&& position.y > rect.position.y
+		&& position.y < (rect.position.y + rect.size.y);
 }
 
-draw_quad2 :: proc(cmd_list: ^UI_Draw_Commands, using rect: ^Rect, color: linalg.Vector4) {
-	draw_quad(cmd_list, {left, top}, {right-left, bottom-top}, color);
+draw_quad2 :: proc(cmd_list: ^UI_Draw_Commands, rect: ^Rect, color: linalg.Vector4) {
+	draw_quad(cmd_list, (linalg.Vector2) (rect.position), (linalg.Vector2) (rect.size), color);
 }
 
 draw_quad :: proc(cmd_list: ^UI_Draw_Commands, position, size: linalg.Vector2, color: linalg.Vector4) {
@@ -236,7 +237,7 @@ create_char_draw_data :: proc (render_pass: vk.VkRenderPass) -> ^Char_Draw_Data 
 
 	char_data, result := stbtt.bake_font_bitmap(
 		char_file, 0, // data, offset
-		24, //pixel_height
+		16, //pixel_height
 		font_pixels, //storage
 		int(text_data.font_size.x), int(text_data.font_size.y),
 		text_data.font_first_idx, num_chars,
@@ -326,6 +327,8 @@ UI_State :: struct {
 	mouse: [2]f32,
 	mouse_pressed: bool,
 	last_mouse_pressed: bool,
+	cursor: linalg.Vector2,
+	frame: Rect,
 };
 draw_button :: proc (using ui_state: ^UI_State, text: string, rect: Rect) -> bool {
 	rect_copy := rect;
@@ -340,7 +343,7 @@ draw_button :: proc (using ui_state: ^UI_State, text: string, rect: Rect) -> boo
 	}
 	draw_quad2(draw_commands, &rect_copy, color);
 	TEXT_OFFSET :: [2]f32 {20, 20};
-	draw_string2(draw_commands, text, {rect.left+TEXT_OFFSET.x, rect.top + TEXT_OFFSET.y}, {0,0,0,1});
+	draw_string2(draw_commands, text, {rect.position.x+TEXT_OFFSET.x, rect.position.y + TEXT_OFFSET.y}, {0,0,0,1});
 
 	if (inside_rect) {
 		if (!ui_state.mouse_pressed && ui_state.last_mouse_pressed) {

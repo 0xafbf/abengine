@@ -14,6 +14,7 @@ Swapchain :: struct {
 	framebuffers: []vk.VkFramebuffer,
 	render_pass:  vk.VkRenderPass,
 	viewport:     Viewport,
+	ui_state:     UI_State,
 };
 
 Viewport :: struct {
@@ -32,9 +33,9 @@ create_swapchain :: proc(
 	color_space: vk.VkColorSpaceKHR,
 	queue_family_indices: []u32,
 	present_mode: vk.VkPresentModeKHR,
-) -> Swapchain {
+) -> ^Swapchain {
 
-	swapchain := Swapchain{};
+	swapchain := new(Swapchain);
 	swapchain.size = extent;
 	// swapchain.image_count = swapchain.image_count; // reset on recreate_swapchain
 
@@ -80,7 +81,15 @@ create_swapchain :: proc(
 	swapchain.viewport.descriptor = ui_viewport_descriptor_set[0];
 
 
-	recreate_swapchain(&swapchain, {swapchain.size.x, swapchain.size.y});
+	recreate_swapchain(swapchain, {swapchain.size.x, swapchain.size.y});
+
+
+	ui_draw_commands := create_draw_commands(1000, swapchain.render_pass);
+
+	swapchain.ui_state = UI_State {
+		draw_commands = ui_draw_commands,
+	};
+
 
 	return swapchain;
 }
